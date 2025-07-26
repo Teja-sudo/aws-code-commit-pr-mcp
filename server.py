@@ -58,6 +58,8 @@ from src.handlers.comment_handlers import (
     post_comment_for_pull_request,
     get_comments_for_pull_request,
     describe_pull_request_events,
+    get_fallback_comment_status,
+    bulk_add_comments,
 )
 from src.handlers.smart_pagination_handlers import (
     get_pr_page,
@@ -200,8 +202,12 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
         # Comment management
         elif name == "add_comment":
             return await post_comment_for_pull_request(pr_manager, arguments)
+        elif name == "bulk_add_comments":
+            return await bulk_add_comments(pr_manager, arguments)
         elif name == "pr_comments":
             return await get_comments_for_pull_request(pr_manager, arguments)
+        elif name == "get_fallback_comment_status":
+            return await get_fallback_comment_status(pr_manager, arguments)
         elif name == "pr_events":
             return await describe_pull_request_events(pr_manager, arguments)
 
@@ -248,6 +254,27 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
 async def main():
     """Main entry point for the enhanced modular MCP server"""
     try:
+        import sys
+        import os
+        
+        # Fix Windows stdout issues for MCP
+        if os.name == 'nt':  # Windows
+            import io
+            sys.stdout = io.TextIOWrapper(
+                sys.stdout.buffer,
+                encoding='utf-8',
+                newline='\n',
+                line_buffering=False,
+                write_through=True
+            )
+            sys.stderr = io.TextIOWrapper(
+                sys.stderr.buffer,
+                encoding='utf-8',
+                newline='\n',
+                line_buffering=False,
+                write_through=True
+            )
+        
         from mcp.server.stdio import stdio_server
 
         async with stdio_server() as (read_stream, write_stream):

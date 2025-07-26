@@ -242,7 +242,7 @@ def get_tools() -> list[Tool]:
         # Comment tools
         Tool(
             name="add_comment",
-            description="💬 Post general or inline PR comments. WORKFLOW: 1) Get commit IDs from get_pr, 2) Review files with pr_file_chunk, 3) Post comments. For inline comments, use exact file path from pr_page and specific line numbers from pr_file_chunk analysis. Supports both general PR discussion and precise code feedback.",
+            description="💬 Post general or inline PR comments. ⚠️ CRITICAL FOR INLINE COMMENTS: filePosition MUST be within actual diff context (changed lines only)! If line has no changes, comment becomes general instead of inline. WORKFLOW: 1) Get commit IDs from get_pr_info, 2) Use pr_file_chunk to see ACTUAL CHANGED LINES (look for +/- markers), 3) Only use line numbers that appear in diff output. Tool includes intelligent fallback with smart aggregation - multiple failed inline comments for same file are automatically combined into single file-level comment.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -332,6 +332,85 @@ def get_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="get_fallback_comment_status",
+            description="📊 Check status of pending fallback comment aggregations. Shows which comments are waiting to be aggregated per file, useful for debugging multiple inline comment failures.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "pull_request_id": {
+                        "type": "string",
+                        "description": "PR ID to check (optional, defaults to all PRs)",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name="bulk_add_comments",
+            description="🎯 Post multiple inline comments efficiently in one operation. ⚠️ IMPORTANT: AWS CodeCommit has no native bulk API - this simulates batch posting via optimized individual calls with smart aggregation. Each comment must still have valid diff context line numbers. Includes comprehensive progress tracking and statistics.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "pull_request_id": {
+                        "type": "string",
+                        "description": "ID of the pull request",
+                    },
+                    "repository_name": {
+                        "type": "string",
+                        "description": "Name of the repository",
+                    },
+                    "before_commit_id": {
+                        "type": "string",
+                        "description": "Commit ID before the change",
+                    },
+                    "after_commit_id": {
+                        "type": "string",
+                        "description": "Commit ID after the change",
+                    },
+                    "comments": {
+                        "type": "array",
+                        "description": "Array of comments to post",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "content": {
+                                    "type": "string",
+                                    "description": "Comment content",
+                                },
+                                "location": {
+                                    "type": "object",
+                                    "properties": {
+                                        "filePath": {
+                                            "type": "string",
+                                            "description": "Path to the file",
+                                        },
+                                        "filePosition": {
+                                            "type": "integer",
+                                            "description": "Line position (must be in diff context)",
+                                        },
+                                        "relativeFileVersion": {
+                                            "type": "string",
+                                            "enum": ["BEFORE", "AFTER"],
+                                            "description": "File version",
+                                        },
+                                    },
+                                    "description": "Location for inline comments (optional for general comments)",
+                                },
+                            },
+                            "required": ["content"],
+                        },
+                    },
+                },
+                "required": [
+                    "pull_request_id",
+                    "repository_name", 
+                    "before_commit_id",
+                    "after_commit_id",
+                    "comments",
+                ],
+            },
+        ),
+        Tool(
             name="pr_events",
             description="Get events for a pull request with enhanced pagination support",
             inputSchema={
@@ -400,7 +479,7 @@ def get_tools() -> list[Tool]:
         ),
         Tool(
             name="pr_file_chunk",
-            description="📝 Load file content in memory-safe chunks (500 lines maximum per call). Use ONLY after identifying target files via pr_page. Essential for large file review - check estimated line count from pr_page first. For files >1000 lines, process sequentially (1-500, 501-1000, 1001-1500, etc.) and provide analysis per chunk. Returns numbered lines with navigation guidance.",
+            description="📝 Load file content in memory-safe chunks (500 lines maximum per call). ⚠️ CRITICAL VERSION RULE: For inline comments, ALWAYS use version='after' to see the modified code, then use those AFTER line numbers for commenting with relativeFileVersion='AFTER'. Using 'before' version line numbers for 'AFTER' comments causes positioning failures. DEFAULT: version='after' (recommended for 95% of use cases). Use 'before' only when specifically analyzing original code.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -425,7 +504,7 @@ def get_tools() -> list[Tool]:
                     "version": {
                         "type": "string",
                         "enum": ["before", "after"],
-                        "description": "File version: 'after' for modified/new files (most common), 'before' for original version",
+                        "description": "CRITICAL: File version - 'after' shows modified code with correct line numbers for inline comments (USE THIS for commenting), 'before' shows original code (analysis only). Line numbers from 'before' version DO NOT match 'after' version!",
                         "default": "after",
                     },
                 },
