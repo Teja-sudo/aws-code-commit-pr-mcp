@@ -242,7 +242,7 @@ def get_tools() -> list[Tool]:
         # Comment tools
         Tool(
             name="add_comment",
-            description="💬 Post general or inline PR comments. WORKFLOW: 1) Get commit IDs from get_pr, 2) Review files with pr_file_chunk, 3) Post comments. For inline comments, use exact file_path from pr_page and specific line numbers from pr_file_chunk analysis. Supports both general PR discussion and precise code feedback.",
+            description="💬 Post general or inline PR comments. WORKFLOW: 1) Get commit IDs from get_pr, 2) Review files with pr_file_chunk, 3) Post comments. For inline comments, use exact file path from pr_page and specific line numbers from pr_file_chunk analysis. Supports both general PR discussion and precise code feedback.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -266,21 +266,21 @@ def get_tools() -> list[Tool]:
                     "location": {
                         "type": "object",
                         "properties": {
-                            "file_path": {
+                            "filePath": {
                                 "type": "string",
                                 "description": "Path to the file",
                             },
-                            "file_position": {
+                            "filePosition": {
                                 "type": "integer",
                                 "description": "Position in the file",
                             },
-                            "relative_file_version": {
+                            "relativeFileVersion": {
                                 "type": "string",
                                 "enum": ["BEFORE", "AFTER"],
                                 "description": "File version",
                             },
                         },
-                        "description": "Location for inline comments (optional)",
+                        "description": "Location for inline comments",
                     },
                     "client_request_token": {
                         "type": "string",

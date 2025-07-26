@@ -50,9 +50,9 @@ async def post_comment_for_pull_request(
         if is_inline:
             location = args["location"]
             result += f"""📍 Location:
-   File: {location.get('file_path', 'Unknown')}
-   Position: {location.get('file_position', 'Unknown')}
-   Version: {location.get('relative_file_version', 'Unknown')}
+   File: {location.get('filePath', 'Unknown')}
+   Position: {location.get('filePosition', 'Unknown')}
+   Version: {location.get('relativeFileVersion', 'Unknown')}
 
 """
 
