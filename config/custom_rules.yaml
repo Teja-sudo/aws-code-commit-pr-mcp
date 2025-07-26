@@ -1,0 +1,270 @@
+# Custom Security Rules for AWS PR Review MCP Server
+# These rules supplement the built-in security checks
+
+security_rules:
+  # S3 Security Rules
+  s3:
+    - name: "prevent_public_write_access"
+      description: "Prevent S3 buckets from having public write access"
+      severity: "critical"
+      pattern: "AllUsers.*WRITE"
+      message: "S3 bucket allows public write access - this is extremely dangerous"
+      recommendation: "Remove public write access and use signed URLs or IAM policies instead"
+    
+    - name: "require_mfa_delete"
+      description: "Require MFA for S3 bucket deletion"
+      severity: "high"
+      pattern: "versioning.*enabled.*mfa_delete.*false"
+      message: "S3 bucket versioning enabled but MFA delete is disabled"
+      recommendation: "Enable MFA delete for additional protection against accidental deletion"
+    
+    - name: "check_bucket_notifications"
+      description: "Ensure S3 buckets have proper event notifications"
+      severity: "medium"
+      pattern: "notification_configuration.*null"
+      message: "S3 bucket lacks event notifications"
+      recommendation: "Configure event notifications for security monitoring"
+
+  # IAM Security Rules
+  iam:
+    - name: "prevent_root_access_keys"
+      description: "Detect root account access keys"
+      severity: "critical"
+      pattern: "root.*access.*key"
+      message: "Root account access keys detected"
+      recommendation: "Delete root access keys and use IAM users with appropriate permissions"
+    
+    - name: "require_password_policy"
+      description: "Ensure strong password policy is configured"
+      severity: "high"
+      checks:
+        - "minimum_password_length >= 14"
+        - "require_symbols == true"
+        - "require_numbers == true"
+        - "require_uppercase == true"
+        - "require_lowercase == true"
+        - "max_password_age <= 90"
+      message: "IAM password policy does not meet security requirements"
+      recommendation: "Configure strong password policy with complexity requirements"
+    
+    - name: "detect_unused_roles"
+      description: "Identify unused IAM roles"
+      severity: "medium"
+      check_type: "last_used"
+      threshold_days: 90
+      message: "IAM role has not been used in 90+ days"
+      recommendation: "Review and remove unused IAM roles to reduce attack surface"
+
+  # EC2 Security Rules
+  ec2:
+    - name: "prevent_default_security_groups"
+      description: "Prevent use of default security groups"
+      severity: "high"
+      pattern: "security_group.*default"
+      message: "EC2 instance using default security group"
+      recommendation: "Create custom security groups with specific rules"
+    
+    - name: "require_encryption_at_rest"
+      description: "Require EBS volume encryption"
+      severity: "high"
+      pattern: "ebs_block_device.*encrypted.*false"
+      message: "EBS volume is not encrypted"
+      recommendation: "Enable EBS encryption for data protection at rest"
+    
+    - name: "prevent_instance_metadata_v1"
+      description: "Prevent use of IMDSv1"
+      severity: "medium"
+      pattern: "metadata_options.*http_tokens.*optional"
+      message: "Instance allows IMDSv1 (less secure)"
+      recommendation: "Enforce IMDSv2 by setting http_tokens to 'required'"
+
+  # RDS Security Rules
+  rds:
+    - name: "require_deletion_protection"
+      description: "Require RDS deletion protection"
+      severity: "high"
+      pattern: "deletion_protection.*false"
+      message: "RDS instance lacks deletion protection"
+      recommendation: "Enable deletion protection to prevent accidental database deletion"
+    
+    - name: "require_enhanced_monitoring"
+      description: "Require RDS enhanced monitoring"
+      severity: "medium"
+      pattern: "monitoring_interval.*0"
+      message: "RDS instance has enhanced monitoring disabled"
+      recommendation: "Enable enhanced monitoring for better database observability"
+    
+    - name: "check_parameter_group"
+      description: "Ensure custom parameter group is used"
+      severity: "low"
+      pattern: "db_parameter_group_name.*default"
+      message: "RDS instance using default parameter group"
+      recommendation: "Create custom parameter group for better configuration control"
+
+  # Lambda Security Rules
+  lambda:
+    - name: "prevent_overprivileged_execution_role"
+      description: "Detect overprivileged Lambda execution roles"
+      severity: "high"
+      pattern: "execution_role.*arn.*AWSLambdaExecute"
+      message: "Lambda using overly broad managed policy"
+      recommendation: "Create custom IAM policy with least privilege permissions"
+    
+    - name: "require_vpc_configuration"
+      description: "Require VPC configuration for sensitive functions"
+      severity: "medium"
+      tags: ["sensitive", "database", "internal"]
+      check: "vpc_config != null"
+      message: "Sensitive Lambda function not configured with VPC"
+      recommendation: "Configure Lambda to run within VPC for network isolation"
+
+compliance_rules:
+  # SOC 2 Compliance Rules
+  soc2:
+    - name: "audit_logging_required"
+      description: "Ensure audit logging is enabled"
+      services: ["cloudtrail", "config", "guardduty"]
+      requirement: "Security controls must be monitored and logged"
+      checks:
+        - service: "cloudtrail"
+          enabled: true
+          multi_region: true
+        - service: "config"
+          enabled: true
+          all_regions: true
+        - service: "guardduty"
+          enabled: true
+      severity: "high"
+    
+    - name: "encryption_requirements"
+      description: "Data encryption requirements"
+      requirement: "Data must be encrypted in transit and at rest"
+      checks:
+        - "s3_default_encryption == true"
+        - "rds_storage_encrypted == true"
+        - "ebs_default_encryption == true"
+      severity: "critical"
+
+  # GDPR Compliance Rules
+  gdpr:
+    - name: "data_retention_policies"
+      description: "Data retention and lifecycle policies"
+      requirement: "Personal data retention must be limited"
+      checks:
+        - "s3_lifecycle_policy != null"
+        - "rds_backup_retention <= 2555"  # 7 years max
+      severity: "high"
+    
+    - name: "data_portability"
+      description: "Ensure data portability mechanisms"
+      requirement: "Data subjects have right to data portability"
+      checks:
+        - "database_export_capability == true"
+        - "api_data_export == true"
+      severity: "medium"
+
+  # HIPAA Compliance Rules
+  hipaa:
+    - name: "phi_encryption"
+      description: "PHI must be encrypted"
+      requirement: "All PHI must be encrypted at rest and in transit"
+      checks:
+        - "database_encryption == true"
+        - "storage_encryption == true"
+        - "transit_encryption == true"
+      severity: "critical"
+    
+    - name: "access_controls"
+      description: "Strict access controls for PHI"
+      requirement: "PHI access must be controlled and audited"
+      checks:
+        - "mfa_required == true"
+        - "access_logging == true"
+        - "role_based_access == true"
+      severity: "high"
+
+cost_optimization_rules:
+  - name: "unused_elastic_ips"
+    description: "Identify unused Elastic IP addresses"
+    service: "ec2"
+    check_type: "resource_utilization"
+    message: "Unused Elastic IP addresses incur charges"
+    recommendation: "Release unused Elastic IP addresses"
+    estimated_monthly_savings: 3.65
+  
+  - name: "oversized_instances"
+    description: "Identify oversized EC2 instances"
+    service: "ec2"
+    check_type: "resource_sizing"
+    cpu_threshold: 20
+    memory_threshold: 30
+    message: "EC2 instance appears to be oversized based on utilization"
+    recommendation: "Consider downsizing to a smaller instance type"
+  
+  - name: "old_generation_instances"
+    description: "Identify old generation EC2 instances"
+    service: "ec2"
+    patterns: ["t2.", "m4.", "c4.", "r4."]
+    message: "Using old generation instance type"
+    recommendation: "Upgrade to newer generation instances for better price-performance"
+  
+  - name: "unoptimized_storage"
+    description: "Identify unoptimized EBS storage"
+    service: "ebs"
+    checks:
+      - "volume_type == gp2"
+      - "iops_utilization < 50"
+    message: "EBS volume could be optimized"
+    recommendation: "Consider migrating to gp3 volumes for better cost-performance"
+
+custom_checks:
+  # Organization-specific security policies
+  organization_policies:
+    - name: "mandatory_tags"
+      description: "Ensure all resources have mandatory tags"
+      required_tags: ["Environment", "Owner", "Project", "CostCenter"]
+      severity: "medium"
+      message: "Resource missing mandatory tags"
+      recommendation: "Add required tags for proper resource management"
+    
+    - name: "approved_regions"
+      description: "Ensure resources are only in approved regions"
+      approved_regions: ["us-east-1", "us-west-2", "eu-west-1"]
+      severity: "high"
+      message: "Resource created in non-approved region"
+      recommendation: "Move resource to approved region or get exception approval"
+    
+    - name: "naming_conventions"
+      description: "Enforce resource naming conventions"
+      patterns:
+        ec2: "^(dev|staging|prod)-[a-z0-9-]+$"
+        s3: "^[a-z0-9.-]+-(dev|staging|prod)$"
+        rds: "^(dev|staging|prod)-[a-z0-9-]+-db$"
+      severity: "low"
+      message: "Resource name does not follow naming convention"
+      recommendation: "Rename resource to follow organizational naming standards"
+
+# Rule execution configuration
+execution_config:
+  parallel_execution: true
+  max_concurrent_rules: 10
+  timeout_per_rule_seconds: 30
+  fail_on_error: false
+  continue_on_rule_failure: true
+  
+# Custom rule priorities
+rule_priorities:
+  critical: 1
+  high: 2
+  medium: 3
+  low: 4
+
+# Rule exclusions (for specific resources or patterns)
+exclusions:
+  - rule_name: "prevent_public_write_access"
+    resource_pattern: "public-website-*"
+    reason: "Public website buckets require public access"
+  
+  - rule_name: "require_vpc_configuration"
+    resource_pattern: "edge-*"
+    reason: "Edge functions don't require VPC configuration"

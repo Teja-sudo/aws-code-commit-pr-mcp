@@ -1,0 +1,23 @@
+# AWS CodeCommit Pull Request MCP Server Dependencies
+
+# Core MCP dependencies
+mcp>=1.0.0
+
+# AWS SDK for CodeCommit operations only
+boto3>=1.34.0
+botocore>=1.34.0
+
+# Configuration and environment
+python-dotenv>=1.0.0
+
+# Date and time handling for PR timestamps
+python-dateutil>=2.8.0
+
+# Type hints and validation
+typing-extensions>=4.0.0
+
+# Base64 decoding for file content (built-in to Python)
+# JSON handling (built-in to Python)
+# Difflib for generating diffs (built-in to Python)
+# Asyncio (built-in to Python)
+# Logging (built-in to Python)

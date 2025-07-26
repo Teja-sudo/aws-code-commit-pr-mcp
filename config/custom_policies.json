@@ -1,0 +1,403 @@
+{
+  "custom_security_policies": {
+    "s3_security_policy": {
+      "name": "Enterprise S3 Security Policy",
+      "version": "1.0",
+      "description": "Comprehensive S3 security requirements for enterprise environments",
+      "requirements": {
+        "encryption": {
+          "mandatory": true,
+          "allowed_algorithms": ["AES256", "aws:kms"],
+          "kms_key_requirements": {
+            "customer_managed_preferred": true,
+            "key_rotation_enabled": true
+          }
+        },
+        "public_access": {
+          "block_public_acls": true,
+          "block_public_policy": true,
+          "ignore_public_acls": true,
+          "restrict_public_buckets": true,
+          "exceptions": {
+            "public_website_buckets": {
+              "allowed": true,
+              "naming_pattern": "public-website-*",
+              "additional_controls": ["cloudfront_required", "waf_enabled"]
+            }
+          }
+        },
+        "versioning": {
+          "required": true,
+          "mfa_delete_required": true
+        },
+        "logging": {
+          "access_logging_required": true,
+          "server_access_logging_target": "centralized-logs-bucket",
+          "cloudtrail_data_events": true
+        },
+        "lifecycle_management": {
+          "required": true,
+          "transition_rules": {
+            "standard_to_ia": "30 days",
+            "ia_to_glacier": "90 days",
+            "glacier_to_deep_archive": "365 days"
+          },
+          "expiration_policy_required": true
+        }
+      }
+    },
+    "iam_security_policy": {
+      "name": "Enterprise IAM Security Policy",
+      "version": "1.0",
+      "description": "IAM security requirements for enterprise environments",
+      "requirements": {
+        "password_policy": {
+          "minimum_password_length": 14,
+          "require_uppercase_characters": true,
+          "require_lowercase_characters": true,
+          "require_numbers": true,
+          "require_symbols": true,
+          "allow_users_to_change_password": true,
+          "max_password_age": 90,
+          "password_reuse_prevention": 12,
+          "hard_expiry": false
+        },
+        "mfa_requirements": {
+          "root_account_mfa": "mandatory",
+          "privileged_users_mfa": "mandatory",
+          "console_access_mfa": "recommended",
+          "api_access_mfa": "conditional"
+        },
+        "access_keys": {
+          "root_access_keys_prohibited": true,
+          "regular_rotation_required": true,
+          "rotation_period_days": 90,
+          "unused_key_cleanup_days": 45
+        },
+        "roles_and_policies": {
+          "principle_of_least_privilege": true,
+          "no_wildcard_permissions": true,
+          "policy_size_limit_kb": 10,
+          "cross_account_trust_approval": "required",
+          "service_linked_roles_preferred": true
+        },
+        "monitoring": {
+          "cloudtrail_required": true,
+          "config_rules_enabled": true,
+          "access_analyzer_enabled": true,
+          "unusual_activity_alerts": true
+        }
+      }
+    },
+    "ec2_security_policy": {
+      "name": "Enterprise EC2 Security Policy",
+      "version": "1.0",
+      "description": "EC2 security requirements for enterprise environments",
+      "requirements": {
+        "instance_security": {
+          "imdsv2_required": true,
+          "no_default_security_groups": true,
+          "security_group_ingress_restrictions": {
+            "no_unrestricted_ingress": true,
+            "ssh_restricted_sources": true,
+            "rdp_restricted_sources": true,
+            "database_ports_private_only": true
+          },
+          "instance_metadata_hop_limit": 1
+        },
+        "storage_security": {
+          "ebs_encryption_mandatory": true,
+          "default_encryption_enabled": true,
+          "customer_managed_keys_preferred": true,
+          "encrypted_snapshots_only": true
+        },
+        "network_security": {
+          "vpc_placement_required": true,
+          "private_subnet_preferred": true,
+          "public_ip_justification_required": true,
+          "security_group_least_privilege": true
+        },
+        "monitoring": {
+          "cloudwatch_monitoring": "detailed",
+          "vpc_flow_logs_enabled": true,
+          "systems_manager_agent_required": true,
+          "patch_compliance_required": true
+        },
+        "backup_and_recovery": {
+          "automated_backups_required": true,
+          "backup_retention_days": 30,
+          "cross_region_backup_recommended": true,
+          "disaster_recovery_plan_required": true
+        }
+      }
+    },
+    "rds_security_policy": {
+      "name": "Enterprise RDS Security Policy",
+      "version": "1.0",
+      "description": "RDS security requirements for enterprise environments",
+      "requirements": {
+        "encryption": {
+          "storage_encryption_mandatory": true,
+          "transit_encryption_mandatory": true,
+          "backup_encryption_mandatory": true,
+          "customer_managed_keys_preferred": true
+        },
+        "network_security": {
+          "vpc_placement_required": true,
+          "private_subnet_required": true,
+          "no_public_accessibility": true,
+          "security_group_restrictions": {
+            "database_ports_only": true,
+            "source_restrictions": "application_security_groups_only"
+          }
+        },
+        "authentication": {
+          "iam_database_authentication_preferred": true,
+          "strong_passwords_required": true,
+          "password_rotation_required": true,
+          "no_default_credentials": true
+        },
+        "backup_and_recovery": {
+          "automated_backups_required": true,
+          "backup_retention_minimum_days": 7,
+          "backup_retention_maximum_days": 35,
+          "point_in_time_recovery_enabled": true,
+          "multi_az_deployment_recommended": true,
+          "deletion_protection_required": true
+        },
+        "monitoring": {
+          "enhanced_monitoring_required": true,
+          "performance_insights_enabled": true,
+          "log_exports_enabled": ["error", "general", "slow-query"],
+          "cloudwatch_alarms_configured": true
+        },
+        "maintenance": {
+          "auto_minor_version_upgrade": false,
+          "maintenance_window_defined": true,
+          "parameter_group_custom": "recommended",
+          "option_group_custom": "recommended"
+        }
+      }
+    },
+    "lambda_security_policy": {
+      "name": "Enterprise Lambda Security Policy",
+      "version": "1.0",
+      "description": "Lambda security requirements for enterprise environments",
+      "requirements": {
+        "runtime_security": {
+          "supported_runtimes_only": true,
+          "latest_runtime_versions_preferred": true,
+          "deprecated_runtime_alerts": true,
+          "custom_runtime_approval_required": true
+        },
+        "execution_environment": {
+          "least_privilege_execution_role": true,
+          "no_wildcard_permissions": true,
+          "vpc_configuration_for_sensitive_functions": true,
+          "environment_variable_encryption": "recommended"
+        },
+        "code_security": {
+          "no_hardcoded_secrets": true,
+          "secrets_manager_integration": "recommended",
+          "parameter_store_integration": "recommended",
+          "dependency_scanning_required": true
+        },
+        "monitoring": {
+          "xray_tracing_enabled": true,
+          "cloudwatch_logs_retention_configured": true,
+          "error_rate_monitoring": true,
+          "performance_monitoring": true
+        },
+        "deployment": {
+          "dead_letter_queue_configured": "recommended",
+          "reserved_concurrency_configured": "recommended",
+          "provisioned_concurrency_for_critical": "recommended",
+          "versioning_and_aliases_used": true
+        }
+      }
+    }
+  },
+  "compliance_mapping": {
+    "SOC2": {
+      "security_controls": {
+        "CC6.1": {
+          "description": "Logical and physical access controls",
+          "aws_services": ["IAM", "EC2", "VPC"],
+          "control_objectives": [
+            "Multi-factor authentication implemented",
+            "Access reviews conducted regularly",
+            "Privileged access monitored"
+          ]
+        },
+        "CC6.2": {
+          "description": "System boundaries and network controls",
+          "aws_services": ["VPC", "Security Groups", "NACLs"],
+          "control_objectives": [
+            "Network segmentation implemented",
+            "Firewall rules documented and reviewed",
+            "Network monitoring in place"
+          ]
+        },
+        "CC6.3": {
+          "description": "Data protection and encryption",
+          "aws_services": ["S3", "RDS", "EBS", "KMS"],
+          "control_objectives": [
+            "Data encrypted at rest and in transit",
+            "Key management procedures documented",
+            "Encryption standards followed"
+          ]
+        }
+      }
+    },
+    "GDPR": {
+      "data_protection": {
+        "article_25": {
+          "description": "Data protection by design and by default",
+          "requirements": [
+            "Privacy impact assessments conducted",
+            "Data minimization implemented",
+            "Purpose limitation enforced"
+          ]
+        },
+        "article_32": {
+          "description": "Security of processing",
+          "requirements": [
+            "Appropriate technical measures implemented",
+            "Regular security testing performed",
+            "Security incident response procedures"
+          ]
+        }
+      }
+    },
+    "HIPAA": {
+      "safeguards": {
+        "administrative": {
+          "164.308": {
+            "description": "Administrative safeguards",
+            "requirements": [
+              "Security officer assigned",
+              "Workforce training conducted",
+              "Access management procedures"
+            ]
+          }
+        },
+        "physical": {
+          "164.310": {
+            "description": "Physical safeguards",
+            "requirements": [
+              "Facility access controls",
+              "Workstation use controls",
+              "Device and media controls"
+            ]
+          }
+        },
+        "technical": {
+          "164.312": {
+            "description": "Technical safeguards",
+            "requirements": [
+              "Access control measures",
+              "Audit controls implemented",
+              "Integrity protection",
+              "Person or entity authentication",
+              "Transmission security"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "risk_assessment_framework": {
+    "risk_categories": {
+      "data_security": {
+        "weight": 0.3,
+        "factors": [
+          "encryption_implementation",
+          "access_controls",
+          "data_classification",
+          "backup_procedures"
+        ]
+      },
+      "network_security": {
+        "weight": 0.25,
+        "factors": [
+          "network_segmentation",
+          "firewall_configuration",
+          "intrusion_detection",
+          "vpn_security"
+        ]
+      },
+      "identity_access": {
+        "weight": 0.25,
+        "factors": [
+          "authentication_strength",
+          "authorization_controls",
+          "privilege_management",
+          "account_monitoring"
+        ]
+      },
+      "operational_security": {
+        "weight": 0.2,
+        "factors": [
+          "patch_management",
+          "security_monitoring",
+          "incident_response",
+          "business_continuity"
+        ]
+      }
+    },
+    "risk_levels": {
+      "critical": {
+        "score_range": [9.0, 10.0],
+        "sla_hours": 2,
+        "escalation_required": true
+      },
+      "high": {
+        "score_range": [7.0, 8.9],
+        "sla_hours": 24,
+        "escalation_required": false
+      },
+      "medium": {
+        "score_range": [4.0, 6.9],
+        "sla_hours": 72,
+        "escalation_required": false
+      },
+      "low": {
+        "score_range": [0.0, 3.9],
+        "sla_hours": 168,
+        "escalation_required": false
+      }
+    }
+  },
+  "remediation_templates": {
+    "s3_encryption": {
+      "title": "Enable S3 Bucket Encryption",
+      "description": "Configure default encryption for S3 bucket",
+      "terraform_template": "resource \"aws_s3_bucket_server_side_encryption_configuration\" \"example\" {\n  bucket = aws_s3_bucket.example.id\n  rule {\n    apply_server_side_encryption_by_default {\n      sse_algorithm = \"AES256\"\n    }\n  }\n}",
+      "cloudformation_template": "BucketEncryption:\n  Type: AWS::S3::Bucket::ServerSideEncryptionConfiguration\n  Properties:\n    Bucket: !Ref S3Bucket\n    ServerSideEncryptionConfiguration:\n      - ServerSideEncryptionByDefault:\n          SSEAlgorithm: AES256",
+      "cli_commands": [
+        "aws s3api put-bucket-encryption --bucket BUCKET_NAME --server-side-encryption-configuration '{\"Rules\":[{\"ApplyServerSideEncryptionByDefault\":{\"SSEAlgorithm\":\"AES256\"}}]}'"
+      ]
+    },
+    "security_group_restriction": {
+      "title": "Restrict Security Group Rules",
+      "description": "Remove overly permissive security group rules",
+      "terraform_template": "resource \"aws_security_group_rule\" \"restricted_ssh\" {\n  type              = \"ingress\"\n  from_port         = 22\n  to_port           = 22\n  protocol          = \"tcp\"\n  cidr_blocks       = [\"10.0.0.0/8\"]\n  security_group_id = aws_security_group.example.id\n}",
+      "cloudformation_template": "SecurityGroupIngress:\n  Type: AWS::EC2::SecurityGroupIngress\n  Properties:\n    GroupId: !Ref SecurityGroup\n    IpProtocol: tcp\n    FromPort: 22\n    ToPort: 22\n    CidrIp: 10.0.0.0/8",
+      "cli_commands": [
+        "aws ec2 revoke-security-group-ingress --group-id sg-12345678 --protocol tcp --port 22 --cidr 0.0.0.0/0",
+        "aws ec2 authorize-security-group-ingress --group-id sg-12345678 --protocol tcp --port 22 --cidr 10.0.0.0/8"
+      ]
+    },
+    "iam_policy_restriction": {
+      "title": "Restrict IAM Policy Permissions",
+      "description": "Replace wildcard permissions with specific actions",
+      "policy_template": "{\n  \"Version\": \"2012-10-17\",\n  \"Statement\": [\n    {\n      \"Effect\": \"Allow\",\n      \"Action\": [\n        \"s3:GetObject\",\n        \"s3:PutObject\"\n      ],\n      \"Resource\": \"arn:aws:s3:::specific-bucket/*\"\n    }\n  ]\n}",
+      "best_practices": [
+        "Use specific actions instead of wildcards",
+        "Limit resource scope as much as possible",
+        "Add conditions to further restrict access",
+        "Regular review and cleanup of unused permissions"
+      ]
+    }
+  }
+}

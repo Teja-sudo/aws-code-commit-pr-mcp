@@ -1,0 +1,91 @@
+2025-07-25T10:46:18.581Z [codecommit-pr] [info] Initializing server... { metadata: undefined }
+2025-07-25T10:46:18.610Z [codecommit-pr] [info] Using MCP server command: C:\WINDOWS\System32\cmd.exe with args and path: {
+  metadata: {
+    args: [ '/C', 'C:/App-SysCloud-UI/aws-pr-mcp/start.bat', [length]: 2 ],
+    paths: [
+      'C:\\Program Files\\nodejs',
+      'C:\\Python312\\Scripts\\',
+      'C:\\Python312\\',
+      'C:\\Program Files\\Python311\\Scripts\\',
+      'C:\\Program Files\\Python311\\',
+      'C:\\windows\\system32',
+      'C:\\windows',
+      'C:\\windows\\System32\\Wbem',
+      'C:\\windows\\System32\\WindowsPowerShell\\v1.0\\',
+      'C:\\windows\\System32\\OpenSSH\\',
+      'C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common',
+      'C:\\Program Files\\NVIDIA Corporation\\NVIDIA NvDLISR',
+      'C:\\Program Files\\Git\\cmd',
+      'C:\\ProgramData\\chocolatey\\bin',
+      'C:\\WINDOWS\\system32',
+      'C:\\WINDOWS',
+      'C:\\WINDOWS\\System32\\Wbem',
+      'C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\',
+      'C:\\WINDOWS\\System32\\OpenSSH\\',
+      'c:\\users\\syscloud-emp\\appdata\\roaming\\python\\python311\\scripts\\',
+      'C:\\Program Files\\Docker\\Docker\\resources\\bin',
+      'C:\\Program Files\\Amazon\\AWSCLIV2\\',
+      'C:\\Python312\\Scripts\\',
+      'C:\\Python312\\',
+      'C:\\Program Files\\Python311\\Scripts\\',
+      'C:\\Program Files\\Python311\\',
+      'C:\\windows\\system32',
+      'C:\\windows',
+      'C:\\windows\\System32\\Wbem',
+      'C:\\windows\\System32\\WindowsPowerShell\\v1.0\\',
+      'C:\\windows\\System32\\OpenSSH\\',
+      'C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common',
+      'C:\\Program Files\\NVIDIA Corporation\\NVIDIA NvDLISR',
+      'C:\\Program Files\\Git\\cmd',
+      'C:\\ProgramData\\chocolatey\\bin',
+      'C:\\WINDOWS\\system32',
+      'C:\\WINDOWS',
+      'C:\\WINDOWS\\System32\\Wbem',
+      'C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\',
+      'C:\\WINDOWS\\System32\\OpenSSH\\',
+      'c:\\users\\syscloud-emp\\appdata\\roaming\\python\\python311\\scripts\\',
+      'C:\\Program Files\\Docker\\Docker\\resources\\bin',
+      'C:\\Program Files\\Amazon\\AWSCLIV2\\',
+      '',
+      'C:\\Users\\Syscloud-Emp\\AppData\\Local\\Programs\\Microsoft VS Code\\bin',
+      'C:\\Users\\Syscloud-Emp\\nvm',
+      'C:\\Users\\Syscloud-Emp\\nvm\\nodejs',
+      'C:\\Users\\Syscloud-Emp\\AppData\\Local\\Microsoft\\WindowsApps',
+      '',
+      [length]: 49
+    ]
+  }
+} %o
+2025-07-25T10:46:18.627Z [codecommit-pr] [info] Server started and connected successfully { metadata: undefined }
+2025-07-25T10:46:18.654Z [codecommit-pr] [info] Message from client: {"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"claude-ai","version":"0.1.0"}},"jsonrpc":"2.0","id":0} { metadata: undefined }
+2025-07-25T10:47:18.659Z [codecommit-pr] [info] Message from client: {"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":0,"reason":"McpError: MCP error -32001: Request timed out"}} { metadata: undefined }
+2025-07-25T10:47:18.660Z [codecommit-pr] [info] Client transport closed { metadata: undefined }
+2025-07-25T10:47:18.661Z [codecommit-pr] [info] Server transport closed { metadata: undefined }
+2025-07-25T10:47:18.662Z [codecommit-pr] [info] Client transport closed { metadata: undefined }
+2025-07-25T10:47:18.662Z [codecommit-pr] [info] Server transport closed unexpectedly, this is likely due to the process exiting early. If you are developing this MCP server you can add output to stderr (i.e. `console.error('...')` in JavaScript, `print('...', file=sys.stderr)` in python) and it will appear in this log. { metadata: undefined }
+2025-07-25T10:47:18.662Z [codecommit-pr] [error] Server disconnected. For troubleshooting guidance, please visit our [debugging documentation](https://modelcontextprotocol.io/docs/tools/debugging) { metadata: { context: 'connection', stack: undefined } }
+2025-07-25T10:47:18.840Z [codecommit-pr] [info] Server transport closed { metadata: undefined }
+2025-07-25T10:47:18.840Z [codecommit-pr] [info] Client transport closed { metadata: undefined }
+{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"experimental":{},"resources":{"subscribe":false,"listChanged":false},"tools":{"listChanged":false}},"serverInfo":{"name":"codecommit-pr-mcp","version":"2.1.0"}}}
+{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"experimental":{},"resources":{"subscribe":false,"listChanged":false},"tools":{"listChanged":false}},"serverInfo":{"name":"codecommit-pr-mcp","version":"2.1.0"}}}
+{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"experimental":{},"resources":{"subscribe":false,"listChanged":false},"tools":{"listChanged":false}},"serverInfo":{"name":"codecommit-pr-mcp","version":"2.1.0"}}}
+DEBUG: Importing AWS client...
+DEBUG: Importing tools...
+DEBUG: Importing handlers...
+DEBUG: Creating PR manager...
+DEBUG: PR manager created
+DEBUG: Starting server initialization...
+DEBUG: About to create stdio_server...
+DEBUG: stdio_server created, starting server.run...
+DEBUG: server.run completed
+{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"experimental":{},"resources":{"subscribe":false,"listChanged":false},"tools":{"listChanged":false}},"serverInfo":{"name":"codecommit-pr-mcp","version":"2.1.0"}}}
+DEBUG: Importing AWS client...
+DEBUG: Importing tools...
+DEBUG: Importing handlers...
+DEBUG: Creating PR manager...
+DEBUG: PR manager created
+DEBUG: Starting server initialization...
+DEBUG: About to create stdio_server...
+DEBUG: stdio_server created, starting server.run...
+{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{"experimental":{},"resources":{"subscribe":false,"listChanged":false},"tools":{"listChanged":false}},"serverInfo":{"name":"codecommit-pr-mcp","version":"2.1.0"}}}
+DEBUG: server.run completed

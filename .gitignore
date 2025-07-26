@@ -1,0 +1,5 @@
+venv 
+venv_linux
+logs
+*.pyc
+__pycache__/
