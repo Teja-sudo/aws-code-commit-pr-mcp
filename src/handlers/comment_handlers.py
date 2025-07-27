@@ -3,6 +3,7 @@ Pull Request comment management handlers
 """
 
 import logging
+import re
 from typing import List, Dict
 from botocore.exceptions import ClientError
 import mcp.types as types
@@ -38,19 +39,9 @@ async def post_comment_for_pull_request(
             file_position = location.get("filePosition", 0)
             relative_version = location.get("relativeFileVersion", "")
             
-            # Log validation details
-            logger.info(f"INLINE COMMENT VALIDATION:")
-            logger.info(f"  - filePath: '{file_path}' (length: {len(file_path)})")
-            logger.info(f"  - filePosition: {file_position} (type: {type(file_position)})")
-            logger.info(f"  - relativeFileVersion: '{relative_version}' (valid: {relative_version in ['BEFORE', 'AFTER']})")
-            
             # Validate required fields for inline comments
-            if not file_path:
-                logger.warning("INLINE COMMENT WARNING: filePath is empty!")
-            if file_position <= 0:
-                logger.warning(f"INLINE COMMENT WARNING: filePosition {file_position} might be invalid!")
-            if relative_version not in ["BEFORE", "AFTER"]:
-                logger.warning(f"INLINE COMMENT WARNING: relativeFileVersion '{relative_version}' is invalid!")
+            if not file_path or file_position <= 0 or relative_version not in ["BEFORE", "AFTER"]:
+                logger.warning(f"Invalid inline comment parameters: path='{file_path}', position={file_position}, version='{relative_version}'")
             
             # CRITICAL FIX: Ensure location uses exact AWS API field names
             # AWS CodeCommit is very strict about this - use camelCase exactly
@@ -60,43 +51,20 @@ async def post_comment_for_pull_request(
                 "relativeFileVersion": str(relative_version)  # Ensure string type
             }
             
-            # CRITICAL WARNING: filePosition must be within diff context
-            logger.warning("CRITICAL INLINE COMMENT REQUIREMENT:")
-            logger.warning(f"  The filePosition {file_position} MUST be within the actual diff context!")
-            logger.warning(f"  This means line {file_position} must have actual changes in the PR diff")
-            logger.warning(f"  If line {file_position} is not changed, the comment will appear as general comment")
-            logger.warning(f"  File: {file_path} - Version: {relative_version}")
-            
-            # VERSION MISMATCH WARNING
-            if relative_version == "AFTER":
-                logger.warning("VERSION MISMATCH CHECK:")
-                logger.warning(f"  You're commenting on AFTER version at line {file_position}")
-                logger.warning(f"  ENSURE you used pr_file_chunk(version='after') to get this line number!")
-                logger.warning(f"  Using line numbers from 'before' version will cause positioning failures!")
-            elif relative_version == "BEFORE":
-                logger.warning("UNCOMMON USAGE WARNING:")
-                logger.warning(f"  You're commenting on BEFORE version - this is rare!")
-                logger.warning(f"  Most comments should use AFTER version with pr_file_chunk(version='after')")
             
             kwargs["location"] = validated_location
-            logger.info(f"INLINE COMMENT FIXED - Validated location: {validated_location}")
-            logger.info(f"INLINE COMMENT DEBUG - Location parameters: {location}")
-            logger.info(f"INLINE COMMENT DEBUG - Full kwargs: {kwargs}")
+            
         if "client_request_token" in args:
             kwargs["clientRequestToken"] = args["client_request_token"]
-
-        logger.info(f"COMMENT DEBUG - Making AWS API call with kwargs: {kwargs}")
         
         # INTELLIGENT FALLBACK MECHANISM
         try:
             response = pr_manager.retry_with_backoff(
                 pr_manager.codecommit_client.post_comment_for_pull_request, **kwargs
             )
-            logger.info(f"COMMENT DEBUG - AWS Response: {response}")
             
             # Check if inline comment was successful by verifying the response has location
             if original_location and "location" not in response.get("comment", {}):
-                logger.warning("FALLBACK TRIGGER: Inline comment may not have positioned correctly")
                 raise Exception("InlineCommentFallback")
                 
         except Exception as e:
@@ -124,14 +92,8 @@ async def post_comment_for_pull_request(
                 }
                 _fallback_comment_tracker[aggregation_key].append(comment_entry)
                 
-                # Check if we should aggregate (wait 2 seconds for potential batch)
-                current_comments = _fallback_comment_tracker[aggregation_key]
-                logger.info(f"AGGREGATION: {len(current_comments)} comments pending for {file_path}")
-                
-                # For now, post immediately but with aggregation-aware content
-                # TODO: Could implement delayed posting for true batching
-                
                 # Collect all failed line numbers for better reporting
+                current_comments = _fallback_comment_tracker[aggregation_key]
                 failed_lines = [comment['line'] for comment in current_comments]
                 failed_lines_str = ", ".join(map(str, failed_lines))
                 
@@ -167,14 +129,12 @@ async def post_comment_for_pull_request(
                 fallback_kwargs.pop("location", None)
                 fallback_kwargs["content"] = aggregated_content
                 
-                logger.info(f"AGGREGATED FALLBACK - Posting {len(current_comments)} comments for {file_path}")
                 response = pr_manager.retry_with_backoff(
                     pr_manager.codecommit_client.post_comment_for_pull_request, **fallback_kwargs
                 )
                 
                 # Clear the tracker for this file after successful posting
                 _fallback_comment_tracker[aggregation_key] = []
-                logger.info(f"AGGREGATION SUCCESS - Cleared tracker for {file_path}")
             else:
                 raise e
 
@@ -192,7 +152,6 @@ async def post_comment_for_pull_request(
                 # Count was captured before clearing tracker
                 posted_content = response.get("comment", {}).get("content", "")
                 if "Aggregated Comments" in posted_content:
-                    import re
                     match = re.search(r"Aggregated Comments\*\*: (\d+)", posted_content)
                     comment_count = match.group(1) if match else "multiple"
                     comment_type = f"File-Level Aggregated ({comment_count} comments)"
@@ -458,8 +417,6 @@ async def bulk_add_comments(
                 text="❌ No comments provided for bulk posting"
             )]
         
-        logger.info(f"BULK COMMENTS: Starting bulk post of {len(comments)} comments for PR {pr_id}")
-        
         # Statistics tracking
         total_comments = len(comments)
         successful_inline = 0
@@ -471,8 +428,6 @@ async def bulk_add_comments(
         # Process each comment
         for i, comment_data in enumerate(comments, 1):
             try:
-                logger.info(f"BULK PROGRESS: Processing comment {i}/{total_comments}")
-                
                 # Prepare individual comment args
                 individual_args = {
                     "pull_request_id": pr_id,
@@ -511,7 +466,6 @@ async def bulk_add_comments(
                 failed_comments += 1
                 error_msg = str(e)[:100]
                 results.append(f"❌ Comment {i}: Failed - {error_msg}...")
-                logger.error(f"BULK ERROR: Comment {i} failed: {str(e)}")
         
         # Generate comprehensive summary
         success_rate = ((successful_inline + successful_fallback) / total_comments) * 100
@@ -559,12 +513,9 @@ async def bulk_add_comments(
 📝 **Note**: AWS CodeCommit does not provide native bulk comment API. 
 This tool efficiently processes multiple comments with smart aggregation fallback."""
         
-        logger.info(f"BULK COMPLETE: {successful_inline + successful_fallback}/{total_comments} successful")
-        
         return [types.TextContent(type="text", text=summary)]
         
     except Exception as e:
-        logger.error(f"BULK COMMENTS FAILED: {str(e)}")
         return [types.TextContent(
             type="text", 
             text=f"❌ Bulk comment posting failed: {str(e)}"

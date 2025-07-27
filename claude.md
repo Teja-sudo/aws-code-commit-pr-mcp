@@ -22,16 +22,20 @@ pr_page(pull_request_id="XXX", page=1)
 - Returns file paths, sizes, estimated line counts (no content loaded)
 - Navigate sequentially: page 1, 2, 3... based on Step 1 totals
 
-### 📝 Step 3: Review File Content in Chunks
+### 📝 Step 3: Review File Content & Identify Changes
 ```
+# RECOMMENDED: See exact changes with git-style diff
+pr_file_diff(pull_request_id="XXX", file_path="exact/path", start_line=1, chunk_size=200)
+
+# ALTERNATIVE: View full file content  
 pr_file_chunk(pull_request_id="XXX", file_path="exact/path", start_line=1, version="after")
 ```
+- **🎯 BEST PRACTICE: Use pr_file_diff to see exact changes with +/- markers**
+- **Automatically shows AFTER line numbers for precise inline comments**
+- **Eliminates version confusion - shows both before/after in one view**
 - Use EXACT file paths from pr_page (case-sensitive, full directory structure)
-- **⚠️ CRITICAL: ALWAYS use version="after" for inline comments!**
-- **Line numbers from version="before" DO NOT work for version="after" comments**
 - Maximum 500 lines per chunk for memory optimization
-- Sequential processing: lines 1-500, then 501-1000, then 1001-1500, etc.
-- Provide detailed analysis per chunk for large files
+- Sequential processing with navigation guidance
 
 ### 💬 Step 4: Post Comments & Manage Approvals
 ```
@@ -63,14 +67,15 @@ refresh_credentials()
 - Fixes expired credentials without restart
 
 ## 💡 Smart Review Strategy:
-1. **Small PRs (<50 files)**: get_pr_info(include_metadata=true) → pr_page(pages 1-3) → pr_file_chunk(version="after") for key files
-2. **Medium PRs (50-200 files)**: get_pr_info(include_metadata=true) → pr_page in 5-page batches → targeted pr_file_chunk(version="after")
-3. **Large PRs (200+ files)**: get_pr_info(include_metadata=true) → pr_page in 10-page batches → focus on critical files with pr_file_chunk(version="after")
+1. **Small PRs (<50 files)**: get_pr_info(include_metadata=true) → pr_page(pages 1-3) → pr_file_diff for changed files
+2. **Medium PRs (50-200 files)**: get_pr_info(include_metadata=true) → pr_page in 5-page batches → targeted pr_file_diff  
+3. **Large PRs (200+ files)**: get_pr_info(include_metadata=true) → pr_page in 10-page batches → focus on critical files with pr_file_diff
 
 ## 🎯 Key Rules:
 - **Always start with get_pr_info(include_metadata=true) for analysis**
 - **Never load all content at once - use pagination**
-- **🚨 CRITICAL: Use pr_file_chunk(version="after") for inline comments - never mix versions!**
+- **🎯 PREFERRED: Use pr_file_diff to see exact changes with correct line numbers**
+- **🚨 FALLBACK: Use pr_file_chunk(version="after") for inline comments - never mix versions!**
 - **Provide feedback per batch/chunk**
 - **Use exact paths/lines from previous calls**
 - **Process incrementally to prevent crashes**

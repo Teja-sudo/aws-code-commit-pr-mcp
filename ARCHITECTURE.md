@@ -31,7 +31,7 @@ aws-pr-mcp/
 │   │   ├── approval_handlers.py # Approval management (280 lines)
 │   │   ├── comment_handlers.py  # Comment operations (300 lines)
 │   │   ├── file_handlers.py     # File content operations (350 lines)
-│   │   └── smart_pagination_handlers.py # Memory-safe huge PR processing (250 lines)
+│   │   └── pr_file_handlers.py # Memory-safe huge PR processing (250 lines)
 │   └── utils/                   # Utility modules
 │       ├── __init__.py          # Package initialization
 │       ├── constants.py         # Application constants (10 lines)
@@ -190,7 +190,7 @@ aws-pr-mcp/
 - Size-aware processing with automatic chunking for large files
 - Content filtering and sanitization
 
-#### `src/handlers/smart_pagination_handlers.py`
+#### `src/handlers/pr_file_handlers.py`
 **Purpose**: Memory-safe processing for huge PRs (250 lines)
 **Functions**:
 - `pr_page()`: Get specific page of files (100 files max per call)

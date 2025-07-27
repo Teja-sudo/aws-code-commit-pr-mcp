@@ -157,7 +157,7 @@ async def manage_pr_approval(pr_manager, args: dict) -> List[types.TextContent]:
                 # Handle standard approval actions
                 approval_state = "APPROVE" if action == "approve" else "REVOKE"
                 
-                response = pr_manager.retry_with_backoff(
+                pr_manager.retry_with_backoff(
                     pr_manager.codecommit_client.update_pull_request_approval_state,
                     pullRequestId=pull_request_id,
                     revisionId=revision_id,
@@ -183,7 +183,7 @@ async def manage_pr_approval(pr_manager, args: dict) -> List[types.TextContent]:
                 # Handle override actions
                 override_status = "OVERRIDE" if action == "override" else "REVOKE"
                 
-                response = pr_manager.retry_with_backoff(
+                pr_manager.retry_with_backoff(
                     pr_manager.codecommit_client.override_pull_request_approval_rules,
                     pullRequestId=pull_request_id,
                     revisionId=revision_id,
@@ -234,9 +234,35 @@ async def manage_pr_approval(pr_manager, args: dict) -> List[types.TextContent]:
             error_code = e.response["Error"]["Code"]
             error_msg = e.response["Error"]["Message"]
 
-            # Handle race conditions with automatic retry
-            if error_code in ["InvalidRevisionIdException", "RevisionNotCurrentException"]:
-                if retry_count < MAX_RETRIES - 1:
+            # ENHANCED: Handle both race conditions and format errors
+            if error_code == "InvalidRevisionIdException":
+                # Check if this is a format error (commit SHA vs revision ID)
+                provided_revision = args.get("revision_id", "")
+                if len(provided_revision) == 40 and "64 characters" in error_msg:
+                    # User provided commit SHA instead of revision ID
+                    troubleshooting = f"""
+
+🔧 Invalid Revision ID Format:
+• You provided a 40-character commit SHA: {provided_revision}
+• AWS requires a 64-character revision ID for approval operations
+• Commit SHAs are used for comments, revision IDs for approvals
+
+💡 Solution:
+• Use get_pr_info(pull_request_id="{pull_request_id}") to get the correct revision ID
+• Look for "Revision ID for Approvals" in the response
+• Use that 64-character value instead of the commit SHA
+
+🎯 Quick fix: Run get_pr_info first, then use the revision_id from the response"""
+                    
+                    return [
+                        types.TextContent(
+                            type="text",
+                            text=f"❌ Wrong ID Type: {error_msg}{troubleshooting}",
+                        )
+                    ]
+                
+                # Handle race conditions with automatic retry
+                elif retry_count < MAX_RETRIES - 1:
                     logger.warning(f"Race condition detected for PR {pull_request_id} (attempt {retry_count + 1}): {error_code}")
                     await asyncio.sleep(0.5 * (retry_count + 1))  # Exponential backoff
                     continue  # Retry with fresh revision ID
@@ -245,6 +271,28 @@ async def manage_pr_approval(pr_manager, args: dict) -> List[types.TextContent]:
                     troubleshooting = f"""
 
 🔧 Race Condition - Failed after {MAX_RETRIES} attempts:
+• PR was updated {retry_count + 1} times during approval attempt
+• Someone else is actively modifying this PR
+• Try again in a few moments when the PR is stable
+• Use get_pr_info to get the latest revision ID"""
+                    
+                    return [
+                        types.TextContent(
+                            type="text",
+                            text=f"❌ AWS Error ({error_code}): {error_msg}{troubleshooting}",
+                        )
+                    ]
+            
+            # Handle other revision-related race conditions
+            elif error_code == "RevisionNotCurrentException":
+                if retry_count < MAX_RETRIES - 1:
+                    logger.warning(f"Race condition detected for PR {pull_request_id} (attempt {retry_count + 1}): {error_code}")
+                    await asyncio.sleep(0.5 * (retry_count + 1))  # Exponential backoff
+                    continue  # Retry with fresh revision ID
+                else:
+                    troubleshooting = f"""
+
+🔧 Revision Race Condition - Failed after {MAX_RETRIES} attempts:
 • PR was updated {retry_count + 1} times during approval attempt
 • Someone else is actively modifying this PR
 • Try again in a few moments when the PR is stable
@@ -291,196 +339,3 @@ async def manage_pr_approval(pr_manager, args: dict) -> List[types.TextContent]:
     ]
 
 
-async def update_pull_request_approval_state(
-    pr_manager, args: dict
-) -> List[types.TextContent]:
-    """Update approval state for a pull request"""
-    try:
-        response = pr_manager.retry_with_backoff(
-            pr_manager.codecommit_client.update_pull_request_approval_state,
-            pullRequestId=args["pull_request_id"],
-            revisionId=args["revision_id"],
-            approvalState=args["approval_state"],
-        )
-
-        approval_icon = "✅" if args["approval_state"] == "APPROVE" else "❌"
-        action = (
-            "approved"
-            if args["approval_state"] == "APPROVE"
-            else "revoked approval for"
-        )
-
-        result = f"""✅ Approval State Updated:
-
-🆔 PR ID: {args['pull_request_id']}
-{approval_icon} Action: {args['approval_state']}
-🔄 Revision: {args['revision_id']}
-
-🎯 You have {action} this pull request!
-
-💡 Next Steps:
-• Check overall approval status with get_pull_request_approval_states
-• Review any remaining approval requirements
-• Monitor for additional reviews or changes"""
-
-        return [types.TextContent(type="text", text=result)]
-
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-        error_msg = e.response["Error"]["Message"]
-
-        troubleshooting = ""
-        if error_code == "InvalidRevisionIdException":
-            troubleshooting = """
-🔧 Troubleshooting - Invalid Revision:
-• The revision ID might be outdated
-• PR may have been updated since you last checked
-• Get the latest revision with get_pull_request
-"""
-        elif error_code == "RevisionNotCurrentException":
-            troubleshooting = """
-🔧 Troubleshooting - Revision Not Current:
-• PR has been updated since this revision
-• Get the latest revision ID and try again
-• Use get_pull_request to get current revision
-"""
-
-        return [
-            types.TextContent(
-                type="text",
-                text=f"❌ AWS Error ({error_code}): {error_msg}{troubleshooting}",
-            )
-        ]
-
-
-async def override_pull_request_approval_rules(
-    pr_manager, args: dict
-) -> List[types.TextContent]:
-    """Override approval rules for a pull request"""
-    try:
-        response = pr_manager.retry_with_backoff(
-            pr_manager.codecommit_client.override_pull_request_approval_rules,
-            pullRequestId=args["pull_request_id"],
-            revisionId=args["revision_id"],
-            overrideStatus=args["override_status"],
-        )
-
-        override_icon = "🔓" if args["override_status"] == "OVERRIDE" else "🔒"
-        action = (
-            "overridden"
-            if args["override_status"] == "OVERRIDE"
-            else "revoked override for"
-        )
-
-        result = f"""✅ Approval Rules Override Updated:
-
-🆔 PR ID: {args['pull_request_id']}
-{override_icon} Action: {args['override_status']}
-🔄 Revision: {args['revision_id']}
-
-🎯 Approval rules have been {action}!
-
-💡 Impact:
-"""
-
-        if args["override_status"] == "OVERRIDE":
-            result += """• All approval rule requirements are now bypassed
-• PR can be merged without meeting normal approval criteria
-• This action is logged and auditable"""
-        else:
-            result += """• Normal approval rules are now restored
-• PR must meet all configured approval requirements
-• Previous override has been revoked"""
-
-        result += """
-
-💡 Next Steps:
-• Check override status with get_pull_request_override_state
-• Review approval requirements if override was revoked
-• Consider the security implications of overrides"""
-
-        return [types.TextContent(type="text", text=result)]
-
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-        error_msg = e.response["Error"]["Message"]
-
-        if error_code == "InsufficientPermissionsException":
-            return [
-                types.TextContent(
-                    type="text",
-                    text=f"❌ Insufficient Permissions: {error_msg}\n"
-                    f"🔧 You need admin permissions to override approval rules.",
-                )
-            ]
-
-        return [
-            types.TextContent(
-                type="text", text=f"❌ AWS Error ({error_code}): {error_msg}"
-            )
-        ]
-
-
-async def get_pull_request_override_state(
-    pr_manager, args: dict
-) -> List[types.TextContent]:
-    """Get override state for pull request approval rules"""
-    try:
-        kwargs = {"pullRequestId": args["pull_request_id"]}
-        if "revision_id" in args:
-            kwargs["revisionId"] = args["revision_id"]
-
-        response = pr_manager.retry_with_backoff(
-            pr_manager.codecommit_client.get_pull_request_override_state, **kwargs
-        )
-
-        is_overridden = response.get("overridden", False)
-        overrider_arn = response.get("overrider")
-
-        result = f"""🔍 Override State for Pull Request {args['pull_request_id']}:
-
-"""
-
-        if is_overridden:
-            overrider_name = (
-                overrider_arn.split("/")[-1] if overrider_arn else "Unknown"
-            )
-            result += f"""🔓 Status: OVERRIDDEN
-
-👤 Override Details:
-   Overridden By: {overrider_name}
-   Overrider ARN: {overrider_arn}
-
-⚠️  Impact:
-• All approval rule requirements are bypassed
-• PR can be merged without normal approvals
-• This override is logged and auditable
-
-💡 Actions Available:
-• Revoke override with override_pull_request_approval_rules
-• Proceed with merge if appropriate
-• Review security implications"""
-        else:
-            result += f"""🔒 Status: NOT OVERRIDDEN
-
-✅ Normal approval rules are in effect:
-• All configured approval requirements must be met
-• Standard review process applies
-• No bypass of approval rules
-
-💡 Actions Available:
-• Check approval states with get_pull_request_approval_states
-• Override rules if you have admin permissions
-• Follow normal approval workflow"""
-
-        return [types.TextContent(type="text", text=result)]
-
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-        error_msg = e.response["Error"]["Message"]
-
-        return [
-            types.TextContent(
-                type="text", text=f"❌ AWS Error ({error_code}): {error_msg}"
-            )
-        ]

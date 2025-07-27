@@ -3,6 +3,7 @@ Pull Request management handlers
 """
 
 import logging
+import re
 from typing import List
 from botocore.exceptions import ClientError
 import mcp.types as types
@@ -90,12 +91,13 @@ async def get_pr_info(pr_manager, args: dict) -> List[types.TextContent]:
     try:
         pull_request_id = str(args["pull_request_id"]).strip()
         include_metadata = args.get("include_metadata", False)
-        
+
         if not pull_request_id:
-            return [types.TextContent(
-                type="text", 
-                text="❌ Error: pull_request_id cannot be empty"
-            )]
+            return [
+                types.TextContent(
+                    type="text", text="❌ Error: pull_request_id cannot be empty"
+                )
+            ]
 
         response = pr_manager.retry_with_backoff(
             pr_manager.codecommit_client.get_pull_request,
@@ -108,42 +110,93 @@ async def get_pr_info(pr_manager, args: dict) -> List[types.TextContent]:
         source_commit = target["sourceCommit"]
         destination_commit = target["destinationCommit"]
 
-        result = f"""📋 Pull Request Details:
+        # Extract additional target details
+        merge_base = target.get("mergeBase", "Not available")
+        merge_metadata = target.get("mergeMetadata", {})
+        merge_option = merge_metadata.get("mergeOption", "Not specified")
+        merge_commit_id = merge_metadata.get("mergeCommitId", "Not available")
+        merged_by = merge_metadata.get("mergedBy", "Not merged")
+
+        # Format author information
+        author_arn = pr.get("authorArn", "Unknown")
+        author_name = (
+            author_arn.split("/")[-1] if author_arn != "Unknown" else "Unknown"
+        )
+
+        # Client request token
+        client_token = pr.get("clientRequestToken", "Not specified")
+
+        result = f"""📋 Pull Request Complete Details:
 
 🆔 Basic Information:
    PR ID: {pr['pullRequestId']}
    Title: {pr['title']}
    Status: {pr['pullRequestStatus']}
    Repository: {repository_name}
+   Client Token: {client_token}
    
 📝 Description:
 {pr.get('description', 'No description provided')}
 
 👤 Author Information:
-   Author ARN: {pr.get('authorArn', 'Unknown')}
+   Author: {author_name}
+   Author ARN: {author_arn}
    Created: {pr['creationDate'].strftime('%Y-%m-%d %H:%M:%S UTC')}
    Last Updated: {pr['lastActivityDate'].strftime('%Y-%m-%d %H:%M:%S UTC')}
 
-🔀 Branch Details:
-   Source: {target['sourceReference']} ({source_commit})
-   Destination: {target['destinationReference']} ({destination_commit})
-   Merge Option: {target.get('mergeMetadata', {}).get('mergeOption', 'Not specified')}
+🔀 Branch & Merge Details:
+   Source Branch: {target['sourceReference']}
+   Destination Branch: {target['destinationReference']}
+   Source Commit: {source_commit}
+   Destination Commit: {destination_commit}
+   Merge Base: {merge_base}
+   Merge Option: {merge_option}
+   Merge Commit ID: {merge_commit_id}
+   Merged By: {merged_by}
 
 💬 Commit IDs for Comments:
    Before Commit: {destination_commit}
-   After Commit: {source_commit}"""
+   After Commit: {source_commit}
+
+🔄 Revision ID for Approvals:
+   Revision ID: {pr['revisionId']}"""
+
+        # Add approval rules information if available
+        approval_rules = pr.get("approvalRules", [])
+        if approval_rules:
+            result += f"\n\n📋 Approval Rules ({len(approval_rules)} rules):\n"
+            for i, rule in enumerate(approval_rules, 1):
+                rule_name = rule.get("approvalRuleName", f"Rule {i}")
+                rule_id = rule.get("approvalRuleId", "No ID")
+                rule_content = rule.get("approvalRuleContent", "No content available")
+
+                result += f"\n   {i}. {rule_name}\n"
+                result += f"      Rule ID: {rule_id}\n"
+                result += f"      Content: {rule_content[:200]}{'...' if len(rule_content) > 200 else ''}\n"
+        else:
+            result += f"\n\n📋 Approval Rules: None configured"
+
+        # Add multiple targets support (if PR has multiple targets)
+        all_targets = pr.get("pullRequestTargets", [])
+        if len(all_targets) > 1:
+            result += f"\n\n🎯 Multiple Targets ({len(all_targets)} total):\n"
+            for i, t in enumerate(all_targets, 1):
+                result += f"\n   Target {i}:\n"
+                result += f"      Repository: {t.get('repositoryName', 'Unknown')}\n"
+                result += f"      Source: {t.get('sourceReference', 'Unknown')} → {t.get('destinationReference', 'Unknown')}\n"
+                result += f"      Commits: {t.get('sourceCommit', 'Unknown')[:12]}... {t.get('destinationCommit', 'Unknown')[:12]}...\n"
 
         # Add metadata analysis if requested
         if include_metadata:
             result += f"\n\n📊 PR Metadata Analysis:\n"
-            
+
             try:
                 # Count total files WITHOUT loading content
                 total_files = 0
                 total_pages = 0
                 file_summary = {"A": 0, "M": 0, "D": 0}
                 next_token = None
-                
+
                 # Quick scan to get metadata only
                 while True:
                     kwargs = {
@@ -152,34 +205,36 @@ async def get_pr_info(pr_manager, args: dict) -> List[types.TextContent]:
                         "afterCommitSpecifier": source_commit,
                         "MaxResults": 100,  # AWS max per page
                     }
-                    
+
                     if next_token:
                         kwargs["nextToken"] = next_token
-                        
+
                     diff_response = pr_manager.retry_with_backoff(
                         pr_manager.codecommit_client.get_differences, **kwargs
                     )
-                    
+
                     differences = diff_response.get("differences", [])
                     page_files = len(differences)
                     total_files += page_files
                     total_pages += 1
-                    
+
                     # Count by change type
                     for diff in differences:
                         change_type = diff.get("changeType", "")
                         if change_type in file_summary:
                             file_summary[change_type] += 1
-                    
+
                     next_token = diff_response.get("nextToken")
                     if not next_token:
                         break
-                        
+
                     # Safety break for extreme cases
                     if total_pages > 1000:  # 100,000 files max
-                        logger.warning(f"PR {pull_request_id} has extremely large number of pages, limiting metadata scan")
+                        logger.warning(
+                            f"PR {pull_request_id} has extremely large number of pages, limiting metadata scan"
+                        )
                         break
-                
+
                 result += f"""
 🎯 File Analysis:
    Total Files: {total_files:,}
@@ -197,7 +252,7 @@ async def get_pr_info(pr_manager, args: dict) -> List[types.TextContent]:
 💡 Navigation:
    • pr_page(pull_request_id="{pull_request_id}", page=1) - Start file review
    • pr_file_chunk(file_path="path", start_line=1) - Get file content"""
-            
+
             except Exception as e:
                 result += f"\n⚠️  Metadata analysis failed: {str(e)}"
 
@@ -207,6 +262,7 @@ async def get_pr_info(pr_manager, args: dict) -> List[types.TextContent]:
 🔍 Available Analysis Tools:
    • get_pr_info(pull_request_id="{pull_request_id}", include_metadata=true) - Get full metadata
    • pr_page - Navigate files page by page
+   • pr_file_diff - Review diff of file content in chunks
    • pr_file_chunk - Review file content in chunks
    • pr_comments - See discussions
    • pr_events - View activity timeline
@@ -337,342 +393,6 @@ async def list_pull_requests(pr_manager, args: dict) -> List[types.TextContent]:
         return [
             types.TextContent(
                 type="text", text=f"❌ AWS Error ({error_code}): {error_msg}"
-            )
-        ]
-
-
-async def get_pull_request_changes_bulletproof(
-    pr_manager, args: dict
-) -> List[types.TextContent]:
-    """Enhanced PR changes analysis with bulletproof edge case handling"""
-    try:
-        pull_request_id = args["pull_request_id"]
-        include_diff = args.get("include_diff", True)
-        max_files = args.get("max_files", 100000)
-        file_filter = args.get("file_path_filter")
-        deep_analysis = args.get("deep_analysis", True)
-        stream_processing = args.get("stream_processing", True)
-
-        # Get PR details with retry logic
-        pr_response = pr_manager.retry_with_backoff(
-            pr_manager.codecommit_client.get_pull_request,
-            pullRequestId=pull_request_id,
-        )
-
-        pr = pr_response["pullRequest"]
-        target = pr["pullRequestTargets"][0]
-        repository_name = target["repositoryName"]
-        source_commit = target["sourceCommit"]
-        destination_commit = target["destinationCommit"]
-        pr_status = pr["pullRequestStatus"]
-
-        result = f"""🔍 Enhanced Pull Request Analysis:
-
-🆔 PR Information:
-   PR ID: {pull_request_id}
-   Status: {pr_status}
-   Repository: {repository_name}
-   Source: {source_commit} → Destination: {destination_commit}
-
-⚙️  Analysis Configuration:
-   Include Diff: {include_diff}
-   Max Files: {max_files:,}
-   File Filter: {file_filter or 'None'}
-   Deep Analysis: {deep_analysis}
-   Stream Processing: {stream_processing}
-
-🔍 Starting comprehensive analysis...
-
-"""
-
-        # Use destination commit as base for comparison
-        # Note: AWS CodeCommit doesn't have a direct merge base API
-        before_commit = destination_commit
-        after_commit = source_commit
-        result += f"✅ Using destination commit as base: {before_commit}\n\n"
-
-        # Enhanced pagination with bulletproof token handling
-        all_differences = await get_changes_with_enhanced_pagination(
-            pr_manager,
-            repository_name,
-            before_commit,
-            after_commit,
-            max_files,
-            file_filter,
-            stream_processing,
-        )
-
-        total_files = len(all_differences)
-
-        if total_files == 0:
-            result += """📄 No file changes detected.
-
-This could mean:
-• PR has no actual file modifications
-• All changes are in ignored/filtered paths
-• PR might be closed/merged without changes
-• Access permissions might be limiting visibility
-
-✅ Analysis complete - No changes found."""
-            return [types.TextContent(type="text", text=result)]
-
-        # For huge PRs, use streaming analysis
-        if total_files > 100 or stream_processing:
-            result += await stream_analyze_huge_pr(all_differences)
-        else:
-            # Regular analysis for smaller PRs
-            result += f"📊 Found {total_files} file changes:\n\n"
-
-            for i, diff in enumerate(all_differences, 1):
-                change_type = diff.get("changeType", "")
-                change_icon = {"A": "📄", "M": "✏️", "D": "🗑️"}.get(change_type, "❓")
-
-                if change_type == "A":
-                    blob = diff.get("afterBlob", {})
-                elif change_type == "D":
-                    blob = diff.get("beforeBlob", {})
-                else:
-                    blob = diff.get("afterBlob", {}) or diff.get("beforeBlob", {})
-
-                file_path = blob.get("path", "Unknown")
-                file_size = blob.get("size", 0)
-
-                result += (
-                    f"   {i:3d}. {change_icon} {file_path} ({file_size:,} bytes)\n"
-                )
-
-        # Enhanced file discovery if enabled
-        if deep_analysis and total_files > 0:
-            try:
-                discovered_files = await get_comprehensive_file_discovery(
-                    pr_manager, pull_request_id, repository_name, pr
-                )
-                if discovered_files:
-                    result += f"\n🔍 Deep Analysis: Found {len(discovered_files)} additional file references\n"
-            except Exception as e:
-                logger.warning(f"Deep analysis failed: {str(e)}")
-
-        result += f"""
-
-✅ Analysis Complete!
-
-📊 Summary:
-   • Files: {total_files:,}
-   • Stream: {'On' if stream_processing else 'Off'}
-   • Deep: {'On' if deep_analysis else 'Off'}
-   • Filter: {'Yes' if file_filter else 'No'}
-"""
-
-        return [types.TextContent(type="text", text=result)]
-
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-        error_msg = e.response["Error"]["Message"]
-
-        if error_code == "PullRequestDoesNotExistException":
-            return [
-                types.TextContent(
-                    type="text",
-                    text=f"❌ Pull Request {args['pull_request_id']} not found.\n"
-                    f"🔧 Please verify the PR ID is correct and you have access to the repository.",
-                )
-            ]
-
-        return [
-            types.TextContent(
-                type="text", text=f"❌ AWS Error ({error_code}): {error_msg}"
-            )
-        ]
-
-    except Exception as e:
-        logger.error(
-            f"Unexpected error in get_pull_request_changes_bulletproof: {str(e)}"
-        )
-        return [
-            types.TextContent(
-                type="text",
-                text=f"💥 Unexpected Error: {str(e)}\n\nThis indicates a serious issue. Please contact support with this error message.",
-            )
-        ]
-
-
-async def get_pull_request_file_paths(
-    pr_manager, args: dict
-) -> List[types.TextContent]:
-    """Get all file paths associated with a pull request with filtering options"""
-    try:
-        import re
-
-        pull_request_id = args["pull_request_id"]
-        change_types = args.get("change_types", ["A", "M", "D"])
-        file_extension_filter = args.get("file_extension_filter")
-        path_pattern = args.get("path_pattern")
-
-        # Get PR details
-        pr_response = pr_manager.retry_with_backoff(
-            pr_manager.codecommit_client.get_pull_request,
-            pullRequestId=pull_request_id,
-        )
-
-        pr = pr_response["pullRequest"]
-        target = pr["pullRequestTargets"][0]
-        repository_name = target["repositoryName"]
-        source_commit = target["sourceCommit"]
-        destination_commit = target["destinationCommit"]
-        pr_status = pr["pullRequestStatus"]
-
-        # Use destination commit as base for comparison
-        # Note: AWS CodeCommit doesn't have a direct merge base API
-        before_commit = destination_commit
-        after_commit = source_commit
-
-        # Get all differences
-        all_differences = []
-        next_token = None
-
-        while True:
-            kwargs = {
-                "repositoryName": repository_name,
-                "beforeCommitSpecifier": before_commit,
-                "afterCommitSpecifier": after_commit,
-                "MaxResults": 100,
-            }
-
-            if next_token:
-                kwargs["nextToken"] = next_token
-
-            diff_response = pr_manager.retry_with_backoff(
-                pr_manager.codecommit_client.get_differences, **kwargs
-            )
-
-            differences = diff_response.get("differences", [])
-            all_differences.extend(differences)
-
-            next_token = diff_response.get("nextToken")
-            if not next_token:
-                break
-
-        # Process and filter file paths
-        file_paths = {"A": [], "M": [], "D": []}
-
-        for diff in all_differences:
-            change_type = diff.get("changeType", "")
-
-            # Skip if change type not in filter
-            if change_type not in change_types:
-                continue
-
-            file_path = None
-
-            # Get file path based on change type
-            if change_type == "A":  # Added
-                file_path = diff.get("afterBlob", {}).get("path")
-            elif change_type == "M":  # Modified
-                file_path = diff.get("afterBlob", {}).get("path") or diff.get(
-                    "beforeBlob", {}
-                ).get("path")
-            elif change_type == "D":  # Deleted
-                file_path = diff.get("beforeBlob", {}).get("path")
-
-            if not file_path:
-                continue
-
-            # Apply file extension filter if specified
-            if file_extension_filter:
-                if not file_path.endswith(file_extension_filter):
-                    continue
-
-            # Apply path pattern filter if specified
-            if path_pattern:
-                try:
-                    if not re.search(path_pattern, file_path):
-                        continue
-                except re.error:
-                    # If regex is invalid, treat as literal string match
-                    if path_pattern not in file_path:
-                        continue
-
-            file_paths[change_type].append(file_path)
-
-        # Sort all file paths
-        for change_type in file_paths:
-            file_paths[change_type].sort()
-
-        # Generate summary
-        total_files = sum(len(paths) for paths in file_paths.values())
-
-        result = f"""📁 File Paths for Pull Request {pull_request_id}:
-
-🆔 PR Information:
-   Repository: {repository_name}
-   Status: {pr_status}
-   Source: {source_commit}
-   Base: {before_commit}
-
-🔍 Filters Applied:
-   Change Types: {', '.join(change_types)}
-   Extension Filter: {file_extension_filter or 'None'}
-   Path Pattern: {path_pattern or 'None'}
-
-📊 Summary:
-   Total Files: {total_files}
-   Added: {len(file_paths['A'])}
-   Modified: {len(file_paths['M'])}
-   Deleted: {len(file_paths['D'])}
-
-"""
-
-        # Add file listings by category
-        if file_paths["A"] and "A" in change_types:
-            result += f"📄 ADDED FILES ({len(file_paths['A'])}):\n"
-            for i, path in enumerate(file_paths["A"], 1):
-                result += f"   {i:3d}. {path}\n"
-            result += "\n"
-
-        if file_paths["M"] and "M" in change_types:
-            result += f"✏️  MODIFIED FILES ({len(file_paths['M'])}):\n"
-            for i, path in enumerate(file_paths["M"], 1):
-                result += f"   {i:3d}. {path}\n"
-            result += "\n"
-
-        if file_paths["D"] and "D" in change_types:
-            result += f"🗑️  DELETED FILES ({len(file_paths['D'])}):\n"
-            for i, path in enumerate(file_paths["D"], 1):
-                result += f"   {i:3d}. {path}\n"
-            result += "\n"
-
-        if total_files == 0:
-            result += "ℹ️  No files match the specified filters.\n"
-        else:
-            result += f"✅ Retrieved {total_files} file paths successfully!\n\n"
-            result += "💡 Use get_pull_request_file_content to get the actual content of specific files."
-
-        return [types.TextContent(type="text", text=result)]
-
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-        error_msg = e.response["Error"]["Message"]
-
-        if error_code == "PullRequestDoesNotExistException":
-            return [
-                types.TextContent(
-                    type="text",
-                    text=f"❌ Pull Request {args['pull_request_id']} not found.\n"
-                    f"🔧 Please verify the PR ID is correct and you have access to the repository.",
-                )
-            ]
-
-        return [
-            types.TextContent(
-                type="text", text=f"❌ AWS Error ({error_code}): {error_msg}"
-            )
-        ]
-
-    except Exception as e:
-        logger.error(f"Error in get_pull_request_file_paths: {str(e)}")
-        return [
-            types.TextContent(
-                type="text", text=f"❌ Error retrieving file paths: {str(e)}"
             )
         ]
 

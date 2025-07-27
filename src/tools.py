@@ -403,7 +403,7 @@ def get_tools() -> list[Tool]:
                 },
                 "required": [
                     "pull_request_id",
-                    "repository_name", 
+                    "repository_name",
                     "before_commit_id",
                     "after_commit_id",
                     "comments",
@@ -479,7 +479,7 @@ def get_tools() -> list[Tool]:
         ),
         Tool(
             name="pr_file_chunk",
-            description="📝 Load file content in memory-safe chunks (500 lines maximum per call). ⚠️ CRITICAL VERSION RULE: For inline comments, ALWAYS use version='after' to see the modified code, then use those AFTER line numbers for commenting with relativeFileVersion='AFTER'. Using 'before' version line numbers for 'AFTER' comments causes positioning failures. DEFAULT: version='after' (recommended for 95% of use cases). Use 'before' only when specifically analyzing original code.",
+            description="📝 Load file content in memory-safe chunks (500 lines maximum per call). ⚠️ CRITICAL VERSION RULE: For inline comments, ALWAYS use version='after' to see the modified code, then use those AFTER line numbers for commenting with relativeFileVersion='AFTER'. Using 'before' version line numbers for 'AFTER' comments causes positioning failures. DEFAULT: version='after' (recommended for 95% of use cases). Use 'before' only when specifically analyzing original code. 💡 TIP: Use pr_file_diff for direct change identification.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -506,6 +506,34 @@ def get_tools() -> list[Tool]:
                         "enum": ["before", "after"],
                         "description": "CRITICAL: File version - 'after' shows modified code with correct line numbers for inline comments (USE THIS for commenting), 'before' shows original code (analysis only). Line numbers from 'before' version DO NOT match 'after' version!",
                         "default": "after",
+                    },
+                },
+                "required": ["pull_request_id", "file_path"],
+            },
+        ),
+        Tool(
+            name="pr_file_diff",
+            description="🎯 **ESSENTIAL PR REVIEW TOOL** - Git-style diff with precise line mapping for accurate inline comments! Fetches both file versions and computes unified diff using difflib. MEMORY-SAFE (10MB limit) with comprehensive edge case handling. ✅ FEATURES: Binary detection, concurrent file loading, enhanced chunking, A/M/D file support, automatic change type detection. 🚀 WORKFLOW: 1) Use this FIRST to see exact changes (+/- markers), 2) Comment ONLY on lines with changes, 3) Use AFTER line numbers provided. ⚠️ CRITICAL SUCCESS RULE: Only comment on lines marked with + (additions) or modified lines in diff - context lines will fallback to general comments. 📊 OPTIMIZED: 300-line chunks for systematic review, smart error handling.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "pull_request_id": {
+                        "type": "string",
+                        "description": "The pull request ID (numeric string)",
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Exact file path as returned by pr_page (case-sensitive, include full directory structure)",
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Starting line number in the diff (1-based indexing). Use 1 for first chunk, 301 for second, 601 for third, etc. SYSTEMATIC REVIEW: Process entire file in 300-line increments.",
+                        "default": 1,
+                    },
+                    "chunk_size": {
+                        "type": "integer",
+                        "description": "Number of diff lines to retrieve (1-500, OPTIMAL: 300). 300 lines = best balance for systematic review without missing changes. Larger chunks (400-500) = more context but harder processing. Smaller chunks (100-200) = faster but may miss context. USE 300 for comprehensive reviews to ensure no lines are missed.",
+                        "default": 300,
                     },
                 },
                 "required": ["pull_request_id", "file_path"],

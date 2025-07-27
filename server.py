@@ -50,9 +50,6 @@ from src.handlers.pr_handlers import (
 from src.handlers.approval_handlers import (
     get_pr_approvals,
     manage_pr_approval,
-    update_pull_request_approval_state,
-    override_pull_request_approval_rules,
-    get_pull_request_override_state,
 )
 from src.handlers.comment_handlers import (
     post_comment_for_pull_request,
@@ -61,9 +58,10 @@ from src.handlers.comment_handlers import (
     get_fallback_comment_status,
     bulk_add_comments,
 )
-from src.handlers.smart_pagination_handlers import (
+from src.handlers.pr_file_handlers import (
     get_pr_page,
     get_pr_file_chunk,
+    get_pr_file_diff,
 )
 
 # Configure logging
@@ -216,6 +214,8 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
             return await get_pr_page(pr_manager, arguments)
         elif name == "pr_file_chunk":
             return await get_pr_file_chunk(pr_manager, arguments)
+        elif name == "pr_file_diff":
+            return await get_pr_file_diff(pr_manager, arguments)
         else:
             raise ValueError(f"Unknown tool: {name}")
 
