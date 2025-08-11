@@ -18,16 +18,23 @@ import {
   MergePullRequestByFastForwardCommand,
   MergePullRequestBySquashCommand,
   MergePullRequestByThreeWayCommand,
-} from '@aws-sdk/client-codecommit';
-import { AWSAuthManager } from '../auth/aws-auth';
-import { PullRequest, PullRequestComment, Comment, PaginatedResult, PaginationOptions, ApprovalState } from '../types';
+} from "@aws-sdk/client-codecommit";
+import { AWSAuthManager } from "../auth/aws-auth";
+import {
+  PullRequest,
+  PullRequestComment,
+  Comment,
+  PaginatedResult,
+  PaginationOptions,
+  ApprovalState,
+} from "../types";
 
 export class PullRequestService {
   constructor(private authManager: AWSAuthManager) {}
 
   async listPullRequests(
     repositoryName: string,
-    pullRequestStatus: 'OPEN' | 'CLOSED' = 'OPEN',
+    pullRequestStatus: "OPEN" | "CLOSED" = "OPEN",
     options: PaginationOptions = {}
   ): Promise<PaginatedResult<string>> {
     const client = this.authManager.getClient();
@@ -39,7 +46,7 @@ export class PullRequestService {
     });
 
     const response = await client.send(command);
-    
+
     return {
       items: response.pullRequestIds || [],
       nextToken: response.nextToken,
@@ -58,34 +65,36 @@ export class PullRequestService {
     }
 
     return {
-      pullRequestId: pr.pullRequestId || '',
-      title: pr.title || '',
+      pullRequestId: pr.pullRequestId || "",
+      title: pr.title || "",
       description: pr.description,
       lastActivityDate: pr.lastActivityDate,
       creationDate: pr.creationDate,
-      pullRequestStatus: pr.pullRequestStatus as 'OPEN' | 'CLOSED',
-      authorArn: pr.authorArn || '',
-      revisionId: pr.revisionId || '',
+      pullRequestStatus: pr.pullRequestStatus as "OPEN" | "CLOSED",
+      authorArn: pr.authorArn || "",
+      revisionId: pr.revisionId || "",
       clientRequestToken: pr.clientRequestToken,
-      targets: (pr.pullRequestTargets || []).map(target => ({
-        repositoryName: target.repositoryName || '',
-        sourceReference: target.sourceReference || '',
+      targets: (pr.pullRequestTargets || []).map((target) => ({
+        repositoryName: target.repositoryName || "",
+        sourceReference: target.sourceReference || "",
         destinationReference: target.destinationReference,
         destinationCommit: target.destinationCommit,
         sourceCommit: target.sourceCommit,
         mergeBase: target.mergeBase,
-        mergeMetadata: target.mergeMetadata ? {
-          isMerged: target.mergeMetadata.isMerged || false,
-          mergedBy: target.mergeMetadata.mergedBy,
-          mergeCommitId: target.mergeMetadata.mergeCommitId,
-          mergeOption: target.mergeMetadata.mergeOption,
-        } : undefined,
+        mergeMetadata: target.mergeMetadata
+          ? {
+              isMerged: target.mergeMetadata.isMerged || false,
+              mergedBy: target.mergeMetadata.mergedBy,
+              mergeCommitId: target.mergeMetadata.mergeCommitId,
+              mergeOption: target.mergeMetadata.mergeOption,
+            }
+          : undefined,
       })),
-      approvalRules: (pr.approvalRules || []).map(rule => ({
-        approvalRuleId: rule.approvalRuleId || '',
-        approvalRuleName: rule.approvalRuleName || '',
-        approvalRuleContent: rule.approvalRuleContent || '',
-        ruleContentSha256: rule.ruleContentSha256 || '',
+      approvalRules: (pr.approvalRules || []).map((rule) => ({
+        approvalRuleId: rule.approvalRuleId || "",
+        approvalRuleName: rule.approvalRuleName || "",
+        approvalRuleContent: rule.approvalRuleContent || "",
+        ruleContentSha256: rule.ruleContentSha256 || "",
         lastModifiedDate: rule.lastModifiedDate,
         creationDate: rule.creationDate,
         lastModifiedUser: rule.lastModifiedUser,
@@ -105,24 +114,29 @@ export class PullRequestService {
     const command = new CreatePullRequestCommand({
       title,
       description,
-      targets: [{
-        repositoryName,
-        sourceReference,
-        destinationReference,
-      }],
+      targets: [
+        {
+          repositoryName,
+          sourceReference,
+          destinationReference,
+        },
+      ],
       clientRequestToken,
     });
 
     const response = await client.send(command);
-    
+
     if (!response.pullRequest) {
-      throw new Error('Failed to create pull request');
+      throw new Error("Failed to create pull request");
     }
 
     return await this.getPullRequest(response.pullRequest.pullRequestId!);
   }
 
-  async updatePullRequestTitle(pullRequestId: string, title: string): Promise<PullRequest> {
+  async updatePullRequestTitle(
+    pullRequestId: string,
+    title: string
+  ): Promise<PullRequest> {
     const client = this.authManager.getClient();
     const command = new UpdatePullRequestTitleCommand({
       pullRequestId,
@@ -133,7 +147,10 @@ export class PullRequestService {
     return await this.getPullRequest(pullRequestId);
   }
 
-  async updatePullRequestDescription(pullRequestId: string, description: string): Promise<PullRequest> {
+  async updatePullRequestDescription(
+    pullRequestId: string,
+    description: string
+  ): Promise<PullRequest> {
     const client = this.authManager.getClient();
     const command = new UpdatePullRequestDescriptionCommand({
       pullRequestId,
@@ -148,7 +165,7 @@ export class PullRequestService {
     const client = this.authManager.getClient();
     const command = new UpdatePullRequestStatusCommand({
       pullRequestId,
-      pullRequestStatus: 'CLOSED',
+      pullRequestStatus: "CLOSED",
     });
 
     await client.send(command);
@@ -159,7 +176,7 @@ export class PullRequestService {
     const client = this.authManager.getClient();
     const command = new UpdatePullRequestStatusCommand({
       pullRequestId,
-      pullRequestStatus: 'OPEN',
+      pullRequestStatus: "OPEN",
     });
 
     await client.send(command);
@@ -184,23 +201,32 @@ export class PullRequestService {
     });
 
     const response = await client.send(command);
-    
-    const comments: PullRequestComment[] = (response.commentsForPullRequestData || [])
-      .flatMap(data => (data.comments || []))
-      .map(comment => ({
-        commentId: comment.commentId || '',
-        content: comment.content || '',
+
+    const comments: PullRequestComment[] = (
+      response.commentsForPullRequestData || []
+    )
+      .flatMap((data) => data.comments || [])
+      .map((comment) => ({
+        commentId: comment.commentId || "",
+        content: comment.content || "",
         inReplyTo: comment.inReplyTo,
         creationDate: comment.creationDate,
         lastModifiedDate: comment.lastModifiedDate,
-        authorArn: comment.authorArn || '',
+        authorArn: comment.authorArn || "",
         deleted: comment.deleted || false,
         clientRequestToken: comment.clientRequestToken,
         pullRequestId,
         repositoryName,
         beforeCommitId,
         afterCommitId,
-        location: undefined,
+        location: (comment as any).location
+          ? {
+              filePath: (comment as any).location.filePath || "",
+              filePosition: (comment as any).location.filePosition,
+              relativeFileVersion: (comment as any).location
+                .relativeFileVersion as "BEFORE" | "AFTER",
+            }
+          : undefined,
       }));
 
     return {
@@ -218,7 +244,7 @@ export class PullRequestService {
     location?: {
       filePath: string;
       filePosition?: number;
-      relativeFileVersion: 'BEFORE' | 'AFTER';
+      relativeFileVersion: "BEFORE" | "AFTER";
     },
     clientRequestToken?: string
   ): Promise<PullRequestComment> {
@@ -234,26 +260,32 @@ export class PullRequestService {
     });
 
     const response = await client.send(command);
-    
+
     if (!response.comment) {
-      throw new Error('Failed to post comment');
+      throw new Error("Failed to post comment");
     }
 
     const comment = response.comment;
     return {
-      commentId: comment.commentId || '',
-      content: comment.content || '',
+      commentId: comment.commentId || "",
+      content: comment.content || "",
       inReplyTo: comment.inReplyTo,
       creationDate: comment.creationDate,
       lastModifiedDate: comment.lastModifiedDate,
-      authorArn: comment.authorArn || '',
+      authorArn: comment.authorArn || "",
       deleted: comment.deleted || false,
       clientRequestToken: comment.clientRequestToken,
       pullRequestId,
       repositoryName,
       beforeCommitId,
       afterCommitId,
-      location: undefined,
+      location: location
+        ? {
+            filePath: location.filePath,
+            filePosition: location.filePosition,
+            relativeFileVersion: location.relativeFileVersion,
+          }
+        : undefined,
     };
   }
 
@@ -265,19 +297,19 @@ export class PullRequestService {
     });
 
     const response = await client.send(command);
-    
+
     if (!response.comment) {
-      throw new Error('Failed to update comment');
+      throw new Error("Failed to update comment");
     }
 
     const comment = response.comment;
     return {
-      commentId: comment.commentId || '',
-      content: comment.content || '',
+      commentId: comment.commentId || "",
+      content: comment.content || "",
       inReplyTo: comment.inReplyTo,
       creationDate: comment.creationDate,
       lastModifiedDate: comment.lastModifiedDate,
-      authorArn: comment.authorArn || '',
+      authorArn: comment.authorArn || "",
       deleted: comment.deleted || false,
       clientRequestToken: comment.clientRequestToken,
     };
@@ -288,19 +320,19 @@ export class PullRequestService {
     const command = new DeleteCommentContentCommand({ commentId });
 
     const response = await client.send(command);
-    
+
     if (!response.comment) {
-      throw new Error('Failed to delete comment');
+      throw new Error("Failed to delete comment");
     }
 
     const comment = response.comment;
     return {
-      commentId: comment.commentId || '',
-      content: comment.content || '',
+      commentId: comment.commentId || "",
+      content: comment.content || "",
       inReplyTo: comment.inReplyTo,
       creationDate: comment.creationDate,
       lastModifiedDate: comment.lastModifiedDate,
-      authorArn: comment.authorArn || '',
+      authorArn: comment.authorArn || "",
       deleted: comment.deleted || false,
       clientRequestToken: comment.clientRequestToken,
     };
@@ -323,25 +355,28 @@ export class PullRequestService {
     });
 
     const response = await client.send(command);
-    
+
     if (!response.comment) {
-      throw new Error('Failed to post reply');
+      throw new Error("Failed to post reply");
     }
 
     const comment = response.comment;
     return {
-      commentId: comment.commentId || '',
-      content: comment.content || '',
+      commentId: comment.commentId || "",
+      content: comment.content || "",
       inReplyTo: comment.inReplyTo,
       creationDate: comment.creationDate,
       lastModifiedDate: comment.lastModifiedDate,
-      authorArn: comment.authorArn || '',
+      authorArn: comment.authorArn || "",
       deleted: comment.deleted || false,
       clientRequestToken: comment.clientRequestToken,
     };
   }
 
-  async getApprovalStates(pullRequestId: string, revisionId: string): Promise<ApprovalState[]> {
+  async getApprovalStates(
+    pullRequestId: string,
+    revisionId: string
+  ): Promise<ApprovalState[]> {
     const client = this.authManager.getClient();
     const command = new GetPullRequestApprovalStatesCommand({
       pullRequestId,
@@ -349,17 +384,17 @@ export class PullRequestService {
     });
 
     const response = await client.send(command);
-    
-    return (response.approvals || []).map(approval => ({
+
+    return (response.approvals || []).map((approval) => ({
       revisionId: revisionId,
-      approvalStatus: approval.approvalState as 'APPROVE' | 'REVOKE',
+      approvalStatus: approval.approvalState as "APPROVE" | "REVOKE",
     }));
   }
 
   async updateApprovalState(
     pullRequestId: string,
     revisionId: string,
-    approvalStatus: 'APPROVE' | 'REVOKE'
+    approvalStatus: "APPROVE" | "REVOKE"
   ): Promise<void> {
     const client = this.authManager.getClient();
     const command = new UpdatePullRequestApprovalStateCommand({
@@ -371,7 +406,10 @@ export class PullRequestService {
     await client.send(command);
   }
 
-  async evaluateApprovalRules(pullRequestId: string, revisionId: string): Promise<any> {
+  async evaluateApprovalRules(
+    pullRequestId: string,
+    revisionId: string
+  ): Promise<any> {
     const client = this.authManager.getClient();
     const command = new EvaluatePullRequestApprovalRulesCommand({
       pullRequestId,
@@ -386,7 +424,7 @@ export class PullRequestService {
     repositoryName: string,
     destinationCommitSpecifier: string,
     sourceCommitSpecifier: string,
-    mergeOption: 'FAST_FORWARD_MERGE' | 'SQUASH_MERGE' | 'THREE_WAY_MERGE'
+    mergeOption: "FAST_FORWARD_MERGE" | "SQUASH_MERGE" | "THREE_WAY_MERGE"
   ): Promise<any> {
     const client = this.authManager.getClient();
     const command = new GetMergeConflictsCommand({
@@ -425,13 +463,13 @@ export class PullRequestService {
   async mergePullRequest(
     pullRequestId: string,
     repositoryName: string,
-    mergeOption: 'FAST_FORWARD_MERGE' | 'SQUASH_MERGE' | 'THREE_WAY_MERGE',
+    mergeOption: "FAST_FORWARD_MERGE" | "SQUASH_MERGE" | "THREE_WAY_MERGE",
     commitMessage?: string,
     authorName?: string,
     email?: string
   ): Promise<any> {
     const client = this.authManager.getClient();
-    
+
     let command;
     const baseParams = {
       pullRequestId,
@@ -439,10 +477,10 @@ export class PullRequestService {
     };
 
     switch (mergeOption) {
-      case 'FAST_FORWARD_MERGE':
+      case "FAST_FORWARD_MERGE":
         command = new MergePullRequestByFastForwardCommand(baseParams);
         break;
-      case 'SQUASH_MERGE':
+      case "SQUASH_MERGE":
         command = new MergePullRequestBySquashCommand({
           ...baseParams,
           commitMessage,
@@ -450,7 +488,7 @@ export class PullRequestService {
           email,
         });
         break;
-      case 'THREE_WAY_MERGE':
+      case "THREE_WAY_MERGE":
         command = new MergePullRequestByThreeWayCommand({
           ...baseParams,
           commitMessage,
