@@ -199,11 +199,11 @@ class AWSPRReviewerServer {
                 },
                 beforeCommitSpecifier: { 
                   type: 'string', 
-                  description: 'Base commit/branch (what you\'re comparing FROM). Usually target branch like "main" or "develop".' 
+                  description: 'Base commit/branch (what you\'re comparing FROM). For PR reviews, use mergeBase from PR targets, not destinationCommit.' 
                 },
                 afterCommitSpecifier: { 
                   type: 'string', 
-                  description: 'Compare commit/branch (what you\'re comparing TO). Usually source branch or specific commit being reviewed.' 
+                  description: 'Compare commit/branch (what you\'re comparing TO). For PR reviews, use sourceCommit from PR targets.' 
                 },
                 beforePath: { 
                   type: 'string', 
@@ -376,11 +376,11 @@ class AWSPRReviewerServer {
                 },
                 beforeCommitId: { 
                   type: 'string', 
-                  description: 'Optional: Before commit ID to filter comments to specific commit range. Get from PR details.' 
+                  description: 'Optional: Before commit ID to filter comments to specific commit range. Use mergeBase from PR details.' 
                 },
                 afterCommitId: { 
                   type: 'string', 
-                  description: 'Optional: After commit ID to filter comments to specific commit range. Get from PR details.' 
+                  description: 'Optional: After commit ID to filter comments to specific commit range. Use sourceCommit from PR details.' 
                 },
                 nextToken: { 
                   type: 'string', 
@@ -406,11 +406,11 @@ class AWSPRReviewerServer {
                 },
                 beforeCommitId: { 
                   type: 'string', 
-                  description: 'Before commit ID from PR details. Required for all comments.' 
+                  description: 'Before commit ID from PR details. For line-specific comments, use mergeBase from PR targets. For general comments, use destinationCommit. Required for all comments.' 
                 },
                 afterCommitId: { 
                   type: 'string', 
-                  description: 'After commit ID from PR details. Required for all comments.' 
+                  description: 'After commit ID from PR details. Use sourceCommit from PR targets. Required for all comments.' 
                 },
                 content: { 
                   type: 'string', 
@@ -485,11 +485,11 @@ class AWSPRReviewerServer {
                 },
                 beforeCommitId: { 
                   type: 'string', 
-                  description: 'Before commit ID from PR details' 
+                  description: 'Before commit ID from PR details. Use mergeBase from PR targets.' 
                 },
                 afterCommitId: { 
                   type: 'string', 
-                  description: 'After commit ID from PR details' 
+                  description: 'After commit ID from PR details. Use sourceCommit from PR targets.' 
                 },
                 inReplyTo: { 
                   type: 'string', 
