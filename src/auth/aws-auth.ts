@@ -36,11 +36,6 @@ export class AWSAuthManager {
         credentialProvider = fromEnv();
       }
 
-      this.client = new CodeCommitClient({
-        region: this.config.region || 'us-east-1',
-        credentials: credentialProvider,
-      });
-
       if (typeof credentialProvider === 'function') {
         const resolvedCredentials = await credentialProvider();
         this.credentials = {
@@ -52,6 +47,12 @@ export class AWSAuthManager {
       } else {
         this.credentials = credentialProvider as AWSCredentials;
       }
+
+      // Create client with the resolved credentials to ensure it's always up to date
+      this.client = new CodeCommitClient({
+        region: this.config.region || 'us-east-1',
+        credentials: credentialProvider,
+      });
 
       console.log(`AWS credentials loaded successfully${this.config.awsProfile ? ` for profile: ${this.config.awsProfile}` : ''}`);
     } catch (error) {
@@ -74,7 +75,9 @@ export class AWSAuthManager {
   }
 
   async refreshCredentials(): Promise<void> {
+    console.log('Manual credential refresh requested...');
     await this.loadCredentials();
+    console.log('Manual credential refresh completed');
   }
 
   async switchProfile(profileName: string): Promise<void> {
@@ -97,12 +100,21 @@ export class AWSAuthManager {
   }
 
   isCredentialsValid(): boolean {
-    if (!this.credentials) return false;
+    if (!this.credentials) {
+      console.log('No credentials available');
+      return false;
+    }
     
     if (this.credentials.expiration) {
       const now = new Date();
       const buffer = 5 * 60 * 1000; // 5 minutes buffer
-      return this.credentials.expiration.getTime() > now.getTime() + buffer;
+      const isValid = this.credentials.expiration.getTime() > now.getTime() + buffer;
+      
+      if (!isValid) {
+        console.log(`Credentials expired. Expiration: ${this.credentials.expiration.toISOString()}, Now: ${now.toISOString()}`);
+      }
+      
+      return isValid;
     }
     
     return true;

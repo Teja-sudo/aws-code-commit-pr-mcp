@@ -74,9 +74,10 @@ export function handleAWSError(error: any): never {
     );
   }
   
-  if (error.name === 'CredentialsError' || error.name === 'UnauthorizedOperation') {
+  if (error.name === 'CredentialsError' || error.name === 'UnauthorizedOperation' || 
+      error.name === 'TokenRefreshRequired' || error.message?.includes('security token included in the request is expired')) {
     throw new AWSCodeCommitError(
-      `AWS credentials error: ${error.message}`,
+      `AWS credentials error (possibly expired): ${error.message}. Please run aws_creds_refresh to update credentials.`,
       'CREDENTIALS_ERROR',
       401,
       error
