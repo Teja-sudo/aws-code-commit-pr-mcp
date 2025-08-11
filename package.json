@@ -1,0 +1,36 @@
+{
+  "name": "aws-pr-reviewer",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "bin": {
+    "aws-pr-reviewer": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "nodemon --exec tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "mcp",
+    "aws",
+    "codecommit",
+    "pull-request",
+    "code-review",
+    "ai"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "description": "MCP server for AWS CodeCommit pull request review and repository management",
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "nodemon": "^3.1.10",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "@aws-sdk/client-codecommit": "^3.864.0",
+    "@aws-sdk/credential-providers": "^3.864.0",
+    "@modelcontextprotocol/sdk": "^1.17.2"
+  }
+}
