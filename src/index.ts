@@ -14,12 +14,14 @@ import { PullRequestService } from './services/pull-request-service.js';
 import { MCPConfig } from './types/index.js';
 import { handleAWSError, retryWithBackoff } from './utils/error-handler.js';
 import { createPaginationOptions, getAllPages } from './utils/pagination.js';
+import { IntelligentDiffAnalyzer } from './utils/intelligent-diff-analyzer.js';
 
 class AWSPRReviewerServer {
   private server: Server;
   private authManager: AWSAuthManager;
   private repositoryService: RepositoryService;
   private pullRequestService: PullRequestService;
+  private diffAnalyzer: IntelligentDiffAnalyzer;
 
   constructor() {
     this.server = new Server(
@@ -45,6 +47,7 @@ class AWSPRReviewerServer {
     this.authManager = new AWSAuthManager(config);
     this.repositoryService = new RepositoryService(this.authManager);
     this.pullRequestService = new PullRequestService(this.authManager);
+    this.diffAnalyzer = new IntelligentDiffAnalyzer(this.repositoryService);
 
     this.setupToolHandlers();
   }
@@ -53,6 +56,19 @@ class AWSPRReviewerServer {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
         tools: [
+          // RECOMMENDED PR REVIEW WORKFLOW:
+          // 1. repos_list → find repository
+          // 2. prs_list → find PR to review  
+          // 3. pr_get → get PR details & extract mergeBase + sourceCommit from targets[0]
+          // 4. diff_get → identify changed files (use mergeBase as beforeCommitSpecifier)
+          // 5. batch_diff_analyze → get intelligent recommendations for all files
+          // 6. Based on recommendations:
+          //    - file_diff_analyze → for detailed line-by-line analysis
+          //    - file_get → only when analysis recommends full context needed
+          // 7. comment_post → add reviews (use mergeBase as beforeCommitId for line accuracy)
+          //
+          // This workflow ensures efficient, accurate analysis with proper line mapping.
+          
           // Repository Management Tools
           {
             name: 'repos_list',
@@ -127,7 +143,7 @@ class AWSPRReviewerServer {
           },
           {
             name: 'file_get',
-            description: 'Retrieves the complete content of a file at a specific commit or branch. Critical for: 1) Code review - examining file contents, 2) Understanding code context, 3) Analyzing changes in detail, 4) Getting current state of files. Returns full file content as text and blob ID. Use commitSpecifier as branch name (e.g., "main") or specific commit ID for different versions.',
+            description: 'Retrieves complete file content at specific commit/branch. Use strategically based on analysis needs: 1) When file_diff_analyze or batch_diff_analyze recommends full file context, 2) For new files (A) or deleted files (D), 3) When you need broader context beyond diff changes, 4) For small files where full content aids understanding. Avoid using blindly - leverage diff analysis tools first to determine if full content is actually needed for effective review.',
             inputSchema: {
               type: 'object',
               properties: {
@@ -189,7 +205,7 @@ class AWSPRReviewerServer {
           },
           {
             name: 'diff_get',
-            description: 'Gets file differences between two commits/branches showing added, deleted, and modified files. THE MOST CRITICAL tool for code review. Use when: 1) Reviewing PR changes, 2) Comparing branches, 3) Understanding what changed between commits, 4) Analyzing impact of changes. Shows changeType (A/D/M), file paths, and blob IDs. Essential for all PR reviews.',
+            description: 'Gets high-level file differences between commits/branches showing which files changed (A/D/M) with paths and blob IDs. ESSENTIAL FIRST STEP for PR reviews. Provides the foundation for deeper analysis - use this to identify changed files, then follow up with batch_diff_analyze for intelligent recommendations on analysis approach, or file_diff_analyze for detailed line-by-line changes of specific files. The starting point that informs your analysis strategy.',
             inputSchema: {
               type: 'object',
               properties: {
@@ -221,6 +237,83 @@ class AWSPRReviewerServer {
               required: ['repositoryName', 'beforeCommitSpecifier', 'afterCommitSpecifier'],
             },
           },
+          {
+            name: 'file_diff_analyze',
+            description: 'Performs intelligent analysis of a single file\'s changes with context-aware recommendations. Essential for code review when you need to understand what exactly changed in a specific file. Provides line-by-line diff, change complexity analysis, and smart recommendations on whether full file context is needed or if focused diff is sufficient. Use this when diff_get shows a file changed but you need to understand the specific nature and context of changes.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                repositoryName: { 
+                  type: 'string', 
+                  description: 'Repository containing the file' 
+                },
+                beforeCommitId: { 
+                  type: 'string', 
+                  description: 'Commit ID to compare from (use mergeBase from PR for accurate line mapping)' 
+                },
+                afterCommitId: { 
+                  type: 'string', 
+                  description: 'Commit ID to compare to (use sourceCommit from PR)' 
+                },
+                filePath: { 
+                  type: 'string', 
+                  description: 'Path to the specific file to analyze' 
+                },
+                changeType: { 
+                  type: 'string', 
+                  enum: ['A', 'D', 'M'], 
+                  description: 'Change type from diff_get: A=Added, D=Deleted, M=Modified' 
+                },
+              },
+              required: ['repositoryName', 'beforeCommitId', 'afterCommitId', 'filePath', 'changeType'],
+            },
+          },
+          {
+            name: 'batch_diff_analyze',
+            description: 'Analyzes multiple files from a PR diff and provides intelligent batch recommendations. Perfect for PR review workflow - use this after diff_get to get smart analysis of all changed files at once. Provides change complexity assessment, context requirements, and strategic guidance on which files need full context vs focused diff analysis. Helps prioritize review effort and choose optimal analysis approach for each file.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                repositoryName: { 
+                  type: 'string', 
+                  description: 'Repository name' 
+                },
+                beforeCommitId: { 
+                  type: 'string', 
+                  description: 'Base commit ID (use mergeBase from PR targets for accurate analysis)' 
+                },
+                afterCommitId: { 
+                  type: 'string', 
+                  description: 'Compare commit ID (use sourceCommit from PR targets)' 
+                },
+                fileDifferences: { 
+                  type: 'array', 
+                  description: 'Array of file differences from diff_get response',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      changeType: { type: 'string', enum: ['A', 'D', 'M'] },
+                      beforeBlob: {
+                        type: 'object',
+                        properties: {
+                          path: { type: 'string' },
+                          blobId: { type: 'string' }
+                        }
+                      },
+                      afterBlob: {
+                        type: 'object', 
+                        properties: {
+                          path: { type: 'string' },
+                          blobId: { type: 'string' }
+                        }
+                      }
+                    }
+                  }
+                },
+              },
+              required: ['repositoryName', 'beforeCommitId', 'afterCommitId', 'fileDifferences'],
+            },
+          },
 
           // Pull Request Management Tools
           {
@@ -248,7 +341,7 @@ class AWSPRReviewerServer {
           },
           {
             name: 'pr_get',
-            description: 'Gets complete PR details including title, description, author, status, source/target branches, approval rules, merge metadata, and commit IDs. ESSENTIAL for PR review. Use when: 1) Got PR ID from prs_list, 2) Need PR context for review, 3) User asks about specific PR. Provides all PR metadata needed for comprehensive review including commit IDs for diff_get.',
+            description: 'Gets complete PR details with critical commit IDs needed for accurate analysis. ESSENTIAL SECOND STEP after prs_list. Provides mergeBase (use for beforeCommitId in diff analysis) and sourceCommit/destinationCommit from targets array. Extract these commit IDs to use with diff_get → batch_diff_analyze → targeted file analysis workflow. The foundation for all subsequent PR analysis - provides the commit references that ensure accurate line mapping and change detection.',
             inputSchema: {
               type: 'object',
               properties: {
@@ -767,6 +860,29 @@ class AWSPRReviewerServer {
                 args.beforePath as string,
                 args.afterPath as string,
                 paginationOptions
+              );
+              return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            });
+
+          case 'file_diff_analyze':
+            return await retryWithBackoff(async () => {
+              const result = await this.diffAnalyzer.analyzeFileDiff(
+                args.repositoryName as string,
+                args.beforeCommitId as string,
+                args.afterCommitId as string,
+                args.filePath as string,
+                args.changeType as 'A' | 'D' | 'M'
+              );
+              return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+            });
+
+          case 'batch_diff_analyze':
+            return await retryWithBackoff(async () => {
+              const result = await this.diffAnalyzer.analyzeBatchDiffs(
+                args.repositoryName as string,
+                args.beforeCommitId as string,
+                args.afterCommitId as string,
+                args.fileDifferences as any[]
               );
               return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
             });

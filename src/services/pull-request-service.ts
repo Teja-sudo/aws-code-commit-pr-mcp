@@ -20,6 +20,8 @@ import {
   MergePullRequestByThreeWayCommand,
 } from "@aws-sdk/client-codecommit";
 import { AWSAuthManager } from "../auth/aws-auth";
+import { RepositoryService } from "./repository-service";
+import { LinePositionCalculator } from "../utils/line-position-calculator";
 import {
   PullRequest,
   PullRequestComment,
@@ -30,14 +32,20 @@ import {
 } from "../types";
 
 export class PullRequestService {
-  constructor(private authManager: AWSAuthManager) {}
+  private repositoryService: RepositoryService;
+  private linePositionCalculator: LinePositionCalculator;
+
+  constructor(private authManager: AWSAuthManager) {
+    this.repositoryService = new RepositoryService(authManager);
+    this.linePositionCalculator = new LinePositionCalculator(this.repositoryService);
+  }
 
   async listPullRequests(
     repositoryName: string,
     pullRequestStatus: "OPEN" | "CLOSED" = "OPEN",
     options: PaginationOptions = {}
   ): Promise<PaginatedResult<string>> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new ListPullRequestsCommand({
       repositoryName,
       pullRequestStatus,
@@ -54,7 +62,7 @@ export class PullRequestService {
   }
 
   async getPullRequest(pullRequestId: string): Promise<PullRequest> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new GetPullRequestCommand({ pullRequestId });
 
     const response = await client.send(command);
@@ -110,7 +118,7 @@ export class PullRequestService {
     destinationReference: string,
     clientRequestToken?: string
   ): Promise<PullRequest> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new CreatePullRequestCommand({
       title,
       description,
@@ -137,7 +145,7 @@ export class PullRequestService {
     pullRequestId: string,
     title: string
   ): Promise<PullRequest> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new UpdatePullRequestTitleCommand({
       pullRequestId,
       title,
@@ -151,7 +159,7 @@ export class PullRequestService {
     pullRequestId: string,
     description: string
   ): Promise<PullRequest> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new UpdatePullRequestDescriptionCommand({
       pullRequestId,
       description,
@@ -162,7 +170,7 @@ export class PullRequestService {
   }
 
   async closePullRequest(pullRequestId: string): Promise<PullRequest> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new UpdatePullRequestStatusCommand({
       pullRequestId,
       pullRequestStatus: "CLOSED",
@@ -173,7 +181,7 @@ export class PullRequestService {
   }
 
   async reopenPullRequest(pullRequestId: string): Promise<PullRequest> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new UpdatePullRequestStatusCommand({
       pullRequestId,
       pullRequestStatus: "OPEN",
@@ -190,7 +198,7 @@ export class PullRequestService {
     afterCommitId?: string,
     options: PaginationOptions = {}
   ): Promise<PaginatedResult<PullRequestComment>> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new GetCommentsForPullRequestCommand({
       pullRequestId,
       repositoryName,
@@ -248,15 +256,52 @@ export class PullRequestService {
     },
     clientRequestToken?: string
   ): Promise<PullRequestComment> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
+    
+    let validatedLocation = location;
+    
+    // Validate and adjust line position using proper diff-based calculation
+    if (location && location.filePosition) {
+      try {
+        const adjustedLinePosition = await this.linePositionCalculator.validateAndAdjustLinePosition(
+          repositoryName,
+          location.filePath,
+          location.filePosition,
+          location.relativeFileVersion === 'BEFORE' ? beforeCommitId : afterCommitId,
+          location.relativeFileVersion
+        );
+        
+        validatedLocation = {
+          ...location,
+          filePosition: adjustedLinePosition
+        };
+        
+        console.error('Line position validated and adjusted:', {
+          originalPosition: location.filePosition,
+          adjustedPosition: adjustedLinePosition,
+          filePath: location.filePath,
+          relativeFileVersion: location.relativeFileVersion
+        });
+      } catch (error) {
+        console.error('Failed to validate line position, using original:', error);
+        // Keep original location if validation fails
+      }
+    }
+    
     const command = new PostCommentForPullRequestCommand({
       pullRequestId,
       repositoryName,
       beforeCommitId,
       afterCommitId,
       content,
-      location,
+      location: validatedLocation,
       clientRequestToken,
+    });
+
+    console.error('Posting comment with validated location:', {
+      filePath: validatedLocation?.filePath,
+      filePosition: validatedLocation?.filePosition,
+      relativeFileVersion: validatedLocation?.relativeFileVersion
     });
 
     const response = await client.send(command);
@@ -279,18 +324,18 @@ export class PullRequestService {
       repositoryName,
       beforeCommitId,
       afterCommitId,
-      location: location
+      location: validatedLocation
         ? {
-            filePath: location.filePath,
-            filePosition: location.filePosition,
-            relativeFileVersion: location.relativeFileVersion,
+            filePath: validatedLocation.filePath,
+            filePosition: validatedLocation.filePosition,
+            relativeFileVersion: validatedLocation.relativeFileVersion,
           }
         : undefined,
     };
   }
 
   async updateComment(commentId: string, content: string): Promise<Comment> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new UpdateCommentCommand({
       commentId,
       content,
@@ -316,7 +361,7 @@ export class PullRequestService {
   }
 
   async deleteComment(commentId: string): Promise<Comment> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new DeleteCommentContentCommand({ commentId });
 
     const response = await client.send(command);
@@ -347,7 +392,7 @@ export class PullRequestService {
     content: string,
     clientRequestToken?: string
   ): Promise<Comment> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new PostCommentReplyCommand({
       inReplyTo,
       content,
@@ -377,7 +422,7 @@ export class PullRequestService {
     pullRequestId: string,
     revisionId: string
   ): Promise<ApprovalState[]> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new GetPullRequestApprovalStatesCommand({
       pullRequestId,
       revisionId,
@@ -396,7 +441,7 @@ export class PullRequestService {
     revisionId: string,
     approvalStatus: "APPROVE" | "REVOKE"
   ): Promise<void> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new UpdatePullRequestApprovalStateCommand({
       pullRequestId,
       revisionId,
@@ -410,7 +455,7 @@ export class PullRequestService {
     pullRequestId: string,
     revisionId: string
   ): Promise<any> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new EvaluatePullRequestApprovalRulesCommand({
       pullRequestId,
       revisionId,
@@ -426,7 +471,7 @@ export class PullRequestService {
     sourceCommitSpecifier: string,
     mergeOption: "FAST_FORWARD_MERGE" | "SQUASH_MERGE" | "THREE_WAY_MERGE"
   ): Promise<any> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new GetMergeConflictsCommand({
       repositoryName,
       destinationCommitSpecifier,
@@ -449,7 +494,7 @@ export class PullRequestService {
     sourceCommitSpecifier: string,
     destinationCommitSpecifier: string
   ): Promise<string[]> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new GetMergeOptionsCommand({
       repositoryName,
       sourceCommitSpecifier,
@@ -468,7 +513,7 @@ export class PullRequestService {
     authorName?: string,
     email?: string
   ): Promise<any> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
 
     let command;
     const baseParams = {

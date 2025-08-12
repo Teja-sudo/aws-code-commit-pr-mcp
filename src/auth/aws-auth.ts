@@ -48,13 +48,13 @@ export class AWSAuthManager {
         this.credentials = credentialProvider as AWSCredentials;
       }
 
-      // Create client with the resolved credentials to ensure it's always up to date
+      // Always create client with the resolved credentials, not the provider function
       this.client = new CodeCommitClient({
         region: this.config.region || 'us-east-1',
-        credentials: credentialProvider,
+        credentials: this.credentials,
       });
 
-      console.log(`AWS credentials loaded successfully${this.config.awsProfile ? ` for profile: ${this.config.awsProfile}` : ''}`);
+      console.error(`AWS credentials loaded successfully${this.config.awsProfile ? ` for profile: ${this.config.awsProfile}` : ''}`);
     } catch (error) {
       throw new Error(`Failed to load AWS credentials: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -65,9 +65,9 @@ export class AWSAuthManager {
 
     this.refreshTimer = setInterval(async () => {
       try {
-        console.log('Refreshing AWS credentials...');
+        console.error('Refreshing AWS credentials...');
         await this.loadCredentials();
-        console.log('AWS credentials refreshed successfully');
+        console.error('AWS credentials refreshed successfully');
       } catch (error) {
         console.error('Failed to refresh AWS credentials:', error);
       }
@@ -75,9 +75,9 @@ export class AWSAuthManager {
   }
 
   async refreshCredentials(): Promise<void> {
-    console.log('Manual credential refresh requested...');
+    console.error('Manual credential refresh requested...');
     await this.loadCredentials();
-    console.log('Manual credential refresh completed');
+    console.error('Manual credential refresh completed');
   }
 
   async switchProfile(profileName: string): Promise<void> {
@@ -88,10 +88,23 @@ export class AWSAuthManager {
     await this.loadCredentials();
   }
 
-  getClient(): CodeCommitClient {
+  async getClient(): Promise<CodeCommitClient> {
     if (!this.client) {
       throw new Error('AWS client not initialized. Call initialize() first.');
     }
+    
+    // Check if credentials are expired and refresh if needed
+    if (!this.isCredentialsValid()) {
+      console.error('Credentials expired or invalid, refreshing...');
+      try {
+        await this.refreshCredentials();
+        console.error('Credentials refreshed successfully');
+      } catch (error) {
+        console.error('Failed to refresh credentials:', error);
+        throw new Error(`Credential refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+    
     return this.client;
   }
 
@@ -101,7 +114,7 @@ export class AWSAuthManager {
 
   isCredentialsValid(): boolean {
     if (!this.credentials) {
-      console.log('No credentials available');
+      console.error('No credentials available');
       return false;
     }
     
@@ -111,7 +124,7 @@ export class AWSAuthManager {
       const isValid = this.credentials.expiration.getTime() > now.getTime() + buffer;
       
       if (!isValid) {
-        console.log(`Credentials expired. Expiration: ${this.credentials.expiration.toISOString()}, Now: ${now.toISOString()}`);
+        console.error(`Credentials expired. Expiration: ${this.credentials.expiration.toISOString()}, Now: ${now.toISOString()}`);
       }
       
       return isValid;

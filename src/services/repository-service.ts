@@ -15,7 +15,7 @@ export class RepositoryService {
   constructor(private authManager: AWSAuthManager) {}
 
   async listRepositories(options: PaginationOptions = {}): Promise<PaginatedResult<Repository>> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new ListRepositoriesCommand({
       nextToken: options.nextToken,
     });
@@ -41,7 +41,7 @@ export class RepositoryService {
   }
 
   async getRepository(repositoryName: string): Promise<Repository> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new GetRepositoryCommand({ repositoryName });
 
     const response = await client.send(command);
@@ -65,7 +65,7 @@ export class RepositoryService {
   }
 
   async listBranches(repositoryName: string, options: PaginationOptions = {}): Promise<PaginatedResult<Branch>> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new ListBranchesCommand({
       repositoryName,
       nextToken: options.nextToken,
@@ -85,7 +85,7 @@ export class RepositoryService {
           const branchDetails = await this.getBranch(repositoryName, branch.branchName);
           return branchDetails;
         } catch (error) {
-          console.warn(`Failed to get details for branch ${branch.branchName}:`, error);
+          console.error(`Failed to get details for branch ${branch.branchName}:`, error);
           return branch;
         }
       })
@@ -98,7 +98,7 @@ export class RepositoryService {
   }
 
   async getBranch(repositoryName: string, branchName: string): Promise<Branch> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new GetBranchCommand({
       repositoryName,
       branchName,
@@ -113,7 +113,7 @@ export class RepositoryService {
   }
 
   async getCommit(repositoryName: string, commitId: string): Promise<Commit> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new GetCommitCommand({
       repositoryName,
       commitId,
@@ -153,7 +153,7 @@ export class RepositoryService {
     afterPath?: string,
     options: PaginationOptions = {}
   ): Promise<PaginatedResult<FileDifference>> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new GetDifferencesCommand({
       repositoryName,
       beforeCommitSpecifier,
@@ -187,7 +187,7 @@ export class RepositoryService {
   }
 
   async getFile(repositoryName: string, commitSpecifier: string, filePath: string): Promise<{ content: string; blobId: string }> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new GetFileCommand({
       repositoryName,
       commitSpecifier,
@@ -209,7 +209,7 @@ export class RepositoryService {
   }
 
   async getFolder(repositoryName: string, commitSpecifier: string, folderPath: string): Promise<File[]> {
-    const client = this.authManager.getClient();
+    const client = await this.authManager.getClient();
     const command = new GetFolderCommand({
       repositoryName,
       commitSpecifier,
