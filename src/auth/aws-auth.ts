@@ -37,24 +37,39 @@ export class AWSAuthManager {
       }
 
       if (typeof credentialProvider === 'function') {
+        console.error('Resolving credentials from provider function...');
         const resolvedCredentials = await credentialProvider();
+        
+        if (!resolvedCredentials.accessKeyId || !resolvedCredentials.secretAccessKey) {
+          throw new Error('Credential provider returned incomplete credentials');
+        }
+        
         this.credentials = {
           accessKeyId: resolvedCredentials.accessKeyId,
           secretAccessKey: resolvedCredentials.secretAccessKey,
           sessionToken: resolvedCredentials.sessionToken,
           expiration: resolvedCredentials.expiration,
         };
+        
+        console.error(`Resolved credentials: accessKeyId=${resolvedCredentials.accessKeyId.substring(0, 8)}..., hasSessionToken=${!!resolvedCredentials.sessionToken}, expiration=${resolvedCredentials.expiration ? resolvedCredentials.expiration.toISOString() : 'none'}`);
       } else {
+        console.error('Using static credentials...');
         this.credentials = credentialProvider as AWSCredentials;
+        
+        if (!this.credentials.accessKeyId || !this.credentials.secretAccessKey) {
+          throw new Error('Static credentials are incomplete');
+        }
       }
 
-      // Always create client with the resolved credentials, not the provider function
+      // CRITICAL: Always recreate the client with fresh credentials
+      // This ensures expired credentials are replaced
       this.client = new CodeCommitClient({
         region: this.config.region || 'us-east-1',
         credentials: this.credentials,
       });
 
       console.error(`AWS credentials loaded successfully${this.config.awsProfile ? ` for profile: ${this.config.awsProfile}` : ''}`);
+      console.error(`Credentials expire: ${this.credentials.expiration ? this.credentials.expiration.toISOString() : 'no expiration'}`);
     } catch (error) {
       throw new Error(`Failed to load AWS credentials: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -76,8 +91,21 @@ export class AWSAuthManager {
 
   async refreshCredentials(): Promise<void> {
     console.error('Manual credential refresh requested...');
+    
+    // Store old expiration for comparison
+    const oldExpiration = this.credentials?.expiration?.toISOString() || 'no expiration';
+    
     await this.loadCredentials();
-    console.error('Manual credential refresh completed');
+    
+    const newExpiration = this.credentials?.expiration?.toISOString() || 'no expiration';
+    console.error(`Manual credential refresh completed. Old expiration: ${oldExpiration}, New expiration: ${newExpiration}`);
+    
+    // Verify the client was recreated
+    if (this.client) {
+      console.error('AWS client recreated with fresh credentials');
+    } else {
+      console.error('WARNING: AWS client not properly recreated');
+    }
   }
 
   async switchProfile(profileName: string): Promise<void> {
@@ -90,7 +118,8 @@ export class AWSAuthManager {
 
   async getClient(): Promise<CodeCommitClient> {
     if (!this.client) {
-      throw new Error('AWS client not initialized. Call initialize() first.');
+      console.error('AWS client not initialized, initializing now...');
+      await this.initialize();
     }
     
     // Check if credentials are expired and refresh if needed
@@ -105,7 +134,7 @@ export class AWSAuthManager {
       }
     }
     
-    return this.client;
+    return this.client!;
   }
 
   getCredentials(): AWSCredentials | null {
@@ -118,18 +147,30 @@ export class AWSAuthManager {
       return false;
     }
     
+    // Check if required credentials fields are present
+    if (!this.credentials.accessKeyId || !this.credentials.secretAccessKey) {
+      console.error('Credentials missing required fields (accessKeyId or secretAccessKey)');
+      return false;
+    }
+    
+    // Check expiration if present
     if (this.credentials.expiration) {
       const now = new Date();
       const buffer = 5 * 60 * 1000; // 5 minutes buffer
       const isValid = this.credentials.expiration.getTime() > now.getTime() + buffer;
       
       if (!isValid) {
-        console.error(`Credentials expired. Expiration: ${this.credentials.expiration.toISOString()}, Now: ${now.toISOString()}`);
+        console.error(`Credentials expired. Expiration: ${this.credentials.expiration.toISOString()}, Now: ${now.toISOString()}, Buffer: 5 minutes`);
+      } else {
+        const timeUntilExpiry = this.credentials.expiration.getTime() - now.getTime();
+        console.error(`Credentials valid. Time until expiry: ${Math.round(timeUntilExpiry / 1000 / 60)} minutes`);
       }
       
       return isValid;
     }
     
+    // If no expiration, assume credentials are long-lived (IAM user keys)
+    console.error('Credentials have no expiration (long-lived credentials)');
     return true;
   }
 
