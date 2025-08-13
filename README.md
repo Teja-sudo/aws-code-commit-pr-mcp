@@ -94,19 +94,6 @@ A comprehensive Model Context Protocol (MCP) server for AWS CodeCommit that enab
 
 ## Usage
 
-### Running the MCP Server
-
-**Development mode:**
-```bash
-npm run dev
-```
-
-**Production mode:**
-```bash
-npm run build
-npm start
-```
-
 ### MCP Client Configuration
 
 Add this server to your MCP client configuration:
