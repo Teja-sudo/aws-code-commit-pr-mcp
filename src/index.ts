@@ -13,7 +13,7 @@ import { RepositoryService } from "./services/repository-service.js";
 import { PullRequestService } from "./services/pull-request-service.js";
 import { MCPConfig } from "./types/index.js";
 import { handleAWSError, retryWithBackoff } from "./utils/error-handler.js";
-import { createPaginationOptions, getAllPages } from "./utils/pagination.js";
+import { createPaginationOptions } from "./utils/pagination.js";
 import { IntelligentDiffAnalyzer } from "./utils/intelligent-diff-analyzer.js";
 
 class AWSPRReviewerServer {
@@ -63,12 +63,13 @@ class AWSPRReviewerServer {
           // 4. diff_get → identify changed files (use mergeBase as beforeCommitSpecifier)
           // 5. batch_diff_analyze → get intelligent recommendations for all files (max 3-5 files per call)
           // 6. Based on recommendations:
-          //    - file_diff_analyze → for detailed line-by-line analysis
-          //    - file_get → for full context, CRITICAL: for modified files (M) ALWAYS provide beforeCommitId=mergeBase
+          //    - file_diff_analyze → for detailed git diff analysis (diff format only)
+          //    - file_get WITHOUT beforeCommitId → for full file content when diff lacks context
+          //    - code_search → to find specific patterns within files or explore repository structure
           // 7. comment_post → add reviews (use mergeBase as beforeCommitId for line accuracy)
           //
-          // IMPORTANT: For modified files, file_get MUST include beforeCommitId to show what changed!
-          // This workflow ensures efficient, accurate analysis with proper line mapping.
+          // IMPORTANT: All diff tools return ONLY git diff format. Use file_get without beforeCommitId for full content.
+          // This workflow ensures efficient, strategic analysis with proper context when needed.
 
           // Repository Management Tools
           {
@@ -156,7 +157,7 @@ class AWSPRReviewerServer {
           {
             name: "file_get",
             description:
-              "Retrieves complete file content with exact line numbers that match AWS Console display, plus git diff comparison for modified files. CRITICAL FOR MODIFIED FILES: When analyzing modified files (M), you MUST provide beforeCommitId (typically mergeBase from PR) to get both the full current file content AND detailed diff showing exactly which lines were modified. This ensures you know precisely what changed for accurate code review and comment positioning. Returns file content with numbered lines (1-based indexing) plus diff analysis when beforeCommitId is provided. Use strategically: 1) For modified files - ALWAYS include beforeCommitId to see what changed, 2) For new files (A) or deleted files (D), 3) When you need full context beyond diff changes, 4) For small files where full content aids understanding. Line numbers in response match exactly what AWS Console shows for accurate comment positioning.",
+              "Retrieves file content with two distinct modes: 1) WITH beforeCommitId: Returns ONLY git diff format (no file content) - use for seeing what changed. 2) WITHOUT beforeCommitId: Returns full file content with line numbers - use when you need complete context beyond diff (understanding imports, class structure, function relationships, etc.). For code review: Start with diff tools, then use file_get WITHOUT beforeCommitId when diff alone doesn't provide enough context for proper analysis. Line numbers match AWS Console exactly.",
             inputSchema: {
               type: "object",
               properties: {
@@ -224,6 +225,82 @@ class AWSPRReviewerServer {
             },
           },
           {
+            name: "code_search",
+            description:
+              "Advanced code search and repository exploration tool. TWO MAIN MODES: 1) SEARCH MODE: Search for patterns within a specific file (REQUIRED: exact file path). Find functions, classes, imports, variables using regex or literal strings. Use when diff shows changes but you need to understand the broader context within that specific file. 2) TREE MODE: Display repository structure in formatted tree view to explore project organization and find files. Essential for understanding codebase structure when diff analysis lacks context.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                repositoryName: {
+                  type: "string",
+                  description: "Repository to search in",
+                },
+                commitSpecifier: {
+                  type: "string",
+                  description: "Branch name or commit ID to search at (e.g., 'main', 'develop', or specific commit ID)",
+                },
+                mode: {
+                  type: "string",
+                  enum: ["search", "tree"],
+                  description: "Operation mode: 'search' for code pattern searching, 'tree' for repository structure listing",
+                },
+                filePath: {
+                  type: "string",
+                  description: "Required for search mode. Exact file path to search within (e.g., 'src/main.js', 'components/Header.tsx')",
+                },
+                searchPatterns: {
+                  type: "array",
+                  description: "Required for search mode. Array of search patterns to find within the specified file",
+                  items: {
+                    type: "object",
+                    properties: {
+                      pattern: {
+                        type: "string",
+                        description: "Search pattern - regex (/pattern/flags), function name, class name, or literal string",
+                      },
+                      type: {
+                        type: "string",
+                        enum: ["regex", "literal", "function", "class", "import", "variable"],
+                        description: "Search type: regex for complex patterns, literal for exact text, function/class for definitions, import for dependencies",
+                      },
+                      caseSensitive: {
+                        type: "boolean",
+                        description: "Case sensitive search (default: false)",
+                      },
+                    },
+                    required: ["pattern", "type"],
+                  },
+                },
+                treePath: {
+                  type: "string",
+                  description: "For tree mode: Root path to list (default: repository root). Use '/' for root or 'src/' for specific folder",
+                },
+                treeDepth: {
+                  type: "number",
+                  description: "For tree mode: Maximum depth to show (default: unlimited). Use 1 for top-level only, 2 for one level deep, etc.",
+                },
+                maxResults: {
+                  type: "number",
+                  description: "For search mode: Maximum results per pattern (default: 50, max: 200)",
+                },
+                includeContext: {
+                  type: "boolean",
+                  description: "For search mode: Include surrounding lines (default: true)",
+                },
+                contextLines: {
+                  type: "number",
+                  description: "For search mode: Context lines before/after match (default: 3, max: 10)",
+                },
+                excludePaths: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "Paths to exclude (e.g., ['node_modules', 'dist', '.git'])",
+                },
+              },
+              required: ["repositoryName", "commitSpecifier", "mode"],
+            },
+          },
+          {
             name: "commit_get",
             description:
               "Gets comprehensive details about a specific commit including message, author, committer, timestamp, parent commits, and tree ID. Use when: 1) Analyzing commit in PR, 2) Understanding commit history, 3) Getting commit metadata for review, 4) Investigating specific changes. Provides full commit context needed for thorough code review.",
@@ -246,7 +323,7 @@ class AWSPRReviewerServer {
           {
             name: "diff_get",
             description:
-              "Gets high-level file differences between commits/branches showing which files changed (A/D/M) with paths and blob IDs. ESSENTIAL FIRST STEP for PR reviews. Provides the foundation for deeper analysis - use this to identify changed files, then follow up with batch_diff_analyze for intelligent recommendations on analysis approach, or file_diff_analyze for detailed line-by-line changes of specific files. The starting point that informs your analysis strategy.",
+              "Gets high-level file differences between commits/branches showing which files changed (A/D/M) with paths and blob IDs. ESSENTIAL FIRST STEP for PR reviews. After this, use batch_diff_analyze to see what changed in multiple files (git diff only). If diffs don't provide enough context, use file_get without beforeCommitId for full file content, or code_search to find related patterns.",
             inputSchema: {
               type: "object",
               properties: {
@@ -290,7 +367,7 @@ class AWSPRReviewerServer {
           {
             name: "file_diff_analyze",
             description:
-              "Performs intelligent analysis of a single file's changes with git diff format and exact line numbers matching AWS Console. Essential for code review when you need to understand what exactly changed in a specific file. Provides line-by-line diff with precise line numbers (1-based indexing), change complexity analysis, and smart recommendations on whether full file context is needed or if focused diff is sufficient. Line numbers in response match exactly what AWS Console displays for accurate comment positioning.",
+              "Returns ONLY git diff format for a single file - no file content. Shows what changed with precise line numbers. For deleted files, returns deletion confirmation only. WHEN DIFF IS NOT ENOUGH: If you need more context beyond the diff (imports, function definitions, class structure), use file_get WITHOUT beforeCommitId to get full file content, or use code_search to find specific code patterns. For new files, consider using file_get to see full structure if diff alone doesn't provide enough context for review.",
             inputSchema: {
               type: "object",
               properties: {
@@ -331,7 +408,7 @@ class AWSPRReviewerServer {
           {
             name: "batch_diff_analyze",
             description:
-              "Analyzes multiple files from a PR diff and provides intelligent batch recommendations with git diff format and exact line numbers. IMPORTANT: Process 3-5 files maximum per call to avoid memory/context overload. Perfect for PR review workflow - use this after diff_get to get smart analysis of changed files. Returns git diff format with precise line numbers matching AWS Console, plus change complexity assessment, context requirements, and strategic guidance on which files need full context vs focused diff analysis. For large PRs, make multiple calls with 3-5 files each.",
+              "Returns ONLY git diff format for multiple files (3-5 max) - no file content. Shows what changed in each file. For deleted files, shows deletion status only. WHEN DIFFS ARE NOT ENOUGH: If any file's diff lacks context for proper review (missing imports, unclear function relationships, complex logic), use file_get without beforeCommitId for full content, or use code_search to find related code patterns across the repository. Provides strategic guidance on which files may need additional context.",
             inputSchema: {
               type: "object",
               properties: {
@@ -1140,7 +1217,6 @@ class AWSPRReviewerServer {
                         gitDiffFormat: diffAnalysis.gitDiffFormat,
                         totalLines: fileResult.content.split("\n").length,
                         diffSummary: diffAnalysis.summary,
-                        lineNumberMapping: diffAnalysis.lineNumberMapping,
                         modificationSummary: {
                           linesAdded: diffAnalysis.summary.linesAdded,
                           linesRemoved: diffAnalysis.summary.linesRemoved,
@@ -1150,6 +1226,13 @@ class AWSPRReviewerServer {
                           changeType:
                             "Modified (M) - git diff format only due to file size",
                         },
+                        contextGuidance: {
+                          suggestion: "File too large for full content. Use code_search to find specific patterns in this file.",
+                          alternatives: [
+                            "Use code_search in 'search' mode with this file path to find specific functions/classes",
+                            "Use code_search in 'tree' mode to explore related smaller files"
+                          ]
+                        }
                       };
                       return {
                         content: [
@@ -1161,25 +1244,15 @@ class AWSPRReviewerServer {
                       };
                     }
                   } else {
-                    // File is small enough, return both content with line numbers AND diff
-                    const lines = fileResult.content.split("\n");
-                    const contentWithLineNumbers = lines
-                      .map(
-                        (line, index) =>
-                          `${(index + 1).toString().padStart(4, " ")}→${line}`
-                      )
-                      .join("\n");
-
+                    // Return only diff format, no file content
                     const result = {
-                      ...fileResult,
-                      contentWithLineNumbers,
+                      filePath: args.filePath,
                       gitDiffFormat: diffAnalysis.gitDiffFormat,
-                      totalLines: lines.length,
-                      lineNumberFormat:
-                        "AWS Console compatible (1-based indexing)",
-                      analysisType: "modified_file_with_diff",
+                      status: "DIFF_ONLY_RESPONSE",
+                      message: "Returning git diff format only (beforeCommitId provided). For full file content, use file_get without beforeCommitId.",
+                      totalLines: fileResult.content.split("\n").length,
+                      analysisType: "diff_only",
                       diffSummary: diffAnalysis.summary,
-                      lineNumberMapping: diffAnalysis.lineNumberMapping,
                       modificationSummary: {
                         linesAdded: diffAnalysis.summary.linesAdded,
                         linesRemoved: diffAnalysis.summary.linesRemoved,
@@ -1187,8 +1260,15 @@ class AWSPRReviewerServer {
                         complexity:
                           diffAnalysis.analysisRecommendation.complexity,
                         changeType:
-                          "Modified (M) - includes both full content and git diff",
+                          "Modified (M) - git diff format only",
                       },
+                      contextGuidance: {
+                        suggestion: "If diff doesn't provide enough context, use file_get without beforeCommitId for full content",
+                        alternatives: [
+                          "Use code_search in 'search' mode to find specific patterns in this file",
+                          "Use code_search in 'tree' mode to explore related files"
+                        ]
+                      }
                     };
 
                     console.error(
@@ -1293,8 +1373,9 @@ class AWSPRReviewerServer {
                 .join("\n");
 
               const result = {
-                ...fileResult,
-                contentWithLineNumbers,
+                filePath: args.filePath,
+                blobId: fileResult.blobId,
+                content: contentWithLineNumbers,
                 totalLines: lines.length,
                 lineNumberFormat: "AWS Console compatible (1-based indexing)",
                 analysisType: "file_only",
@@ -1321,6 +1402,57 @@ class AWSPRReviewerServer {
                   { type: "text", text: JSON.stringify(result, null, 2) },
                 ],
               };
+            });
+
+          case "code_search":
+            return await retryWithBackoff(async () => {
+              const mode = args.mode as "search" | "tree";
+              
+              if (mode === "tree") {
+                // Tree mode - list repository structure
+                const result = await this.repositoryService.getRepositoryTree(
+                  args.repositoryName as string,
+                  args.commitSpecifier as string,
+                  args.treePath as string || "/",
+                  args.treeDepth as number
+                );
+                
+                return {
+                  content: [
+                    { type: "text", text: JSON.stringify(result, null, 2) },
+                  ],
+                };
+              } else {
+                // Search mode - find code patterns in specific file
+                const filePath = args.filePath as string;
+                const searchPatterns = args.searchPatterns as any[];
+                
+                if (!filePath) {
+                  throw new Error("File path is required for search mode");
+                }
+                
+                if (!searchPatterns || searchPatterns.length === 0) {
+                  throw new Error("Search patterns are required for search mode");
+                }
+                
+                const result = await this.repositoryService.searchInFile(
+                  args.repositoryName as string,
+                  args.commitSpecifier as string,
+                  filePath,
+                  searchPatterns,
+                  {
+                    maxResults: args.maxResults as number || 50,
+                    includeContext: args.includeContext as boolean ?? true,
+                    contextLines: args.contextLines as number || 3
+                  }
+                );
+                
+                return {
+                  content: [
+                    { type: "text", text: JSON.stringify(result, null, 2) },
+                  ],
+                };
+              }
             });
 
           case "commit_get":
@@ -1359,12 +1491,41 @@ class AWSPRReviewerServer {
 
           case "file_diff_analyze":
             return await retryWithBackoff(async () => {
+              const changeType = args.changeType as "A" | "D" | "M";
+              
+              // Handle deleted files - no diff content needed
+              if (changeType === "D") {
+                const result = {
+                  filePath: args.filePath,
+                  changeType: "D",
+                  status: "FILE_DELETED",
+                  message: `File '${args.filePath}' was deleted. No diff content to show.`,
+                  summary: {
+                    linesAdded: 0,
+                    linesRemoved: 0,
+                    linesModified: 0,
+                    totalChanges: 1
+                  },
+                  analysisRecommendation: {
+                    needsFullFile: false,
+                    reason: "File was deleted - no content analysis needed",
+                    contextLines: 0,
+                    complexity: "low" as const
+                  }
+                };
+                
+                return {
+                  content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                };
+              }
+              
+              // For new (A) and modified (M) files, get diff analysis
               const result = await this.diffAnalyzer.analyzeFileDiff(
                 args.repositoryName as string,
                 args.beforeCommitId as string,
                 args.afterCommitId as string,
                 args.filePath as string,
-                args.changeType as "A" | "D" | "M"
+                changeType
               );
 
               const MAX_DIFF_SIZE = 100000; // 100KB limit
@@ -1381,7 +1542,6 @@ class AWSPRReviewerServer {
                     "Git diff is too large (>100KB). Use batch_diff_analyze for smaller chunks or multiple calls.",
                   diffSummary: result.summary,
                   analysisRecommendation: result.analysisRecommendation,
-                  lineNumberMapping: result.lineNumberMapping,
                   chunkingRecommendation:
                     "Break analysis into smaller file batches or use specific line range requests",
                 };
@@ -1399,12 +1559,25 @@ class AWSPRReviewerServer {
                 };
               }
 
+              // Return only diff format, no file content
+              const diffOnlyResult = {
+                filePath: result.filePath,
+                changeType: result.changeType,
+                gitDiffFormat: result.gitDiffFormat,
+                status: changeType === "A" ? "FILE_ADDED" : "FILE_MODIFIED",
+                message: changeType === "A" 
+                  ? `New file '${args.filePath}' added - showing diff format`
+                  : `File '${args.filePath}' modified - showing diff format`,
+                diffSummary: result.summary,
+                analysisRecommendation: result.analysisRecommendation
+              };
+              
               console.error(
                 `Diff analysis for ${args.filePath}: ${gitDiffSize} characters, ${result.summary.totalChanges} changes`
               );
               return {
                 content: [
-                  { type: "text", text: JSON.stringify(result, null, 2) },
+                  { type: "text", text: JSON.stringify(diffOnlyResult, null, 2) },
                 ],
               };
             });
@@ -1443,8 +1616,42 @@ class AWSPRReviewerServer {
                 fileDifferences
               );
 
-              // Check total response size
-              const responseSize = JSON.stringify(result).length;
+              // Create diff-only response without file contents
+              const diffOnlyResult = {
+                batchRecommendations: result.batchRecommendations,
+                files: result.analyses.map((analysis) => {
+                  if (analysis.changeType === "D") {
+                    return {
+                      filePath: analysis.filePath,
+                      changeType: "D",
+                      status: "FILE_DELETED",
+                      message: `File '${analysis.filePath}' was deleted`,
+                      diffSummary: {
+                        linesAdded: 0,
+                        linesRemoved: 0,
+                        linesModified: 0,
+                        totalChanges: 1
+                      },
+                      analysisRecommendation: analysis.analysisRecommendation
+                    };
+                  }
+                  
+                  return {
+                    filePath: analysis.filePath,
+                    changeType: analysis.changeType,
+                    gitDiffFormat: analysis.gitDiffFormat,
+                    status: analysis.changeType === "A" ? "FILE_ADDED" : "FILE_MODIFIED",
+                    message: analysis.changeType === "A" 
+                      ? `New file '${analysis.filePath}' added`
+                      : `File '${analysis.filePath}' modified`,
+                    diffSummary: analysis.summary,
+                    analysisRecommendation: analysis.analysisRecommendation
+                  };
+                })
+              };
+
+              // Check response size with diff-only format
+              const responseSize = JSON.stringify(diffOnlyResult).length;
               const MAX_RESPONSE_SIZE = 200000; // 200KB limit for batch responses
 
               if (responseSize > MAX_RESPONSE_SIZE) {
@@ -1452,25 +1659,23 @@ class AWSPRReviewerServer {
                   `Batch response too large: ${responseSize} characters`
                 );
 
-                // Return summary only for large batches
+                // Return compact summary for large batches
                 const compactResult = {
                   batchRecommendations: result.batchRecommendations,
                   files: result.analyses.map((analysis) => ({
                     filePath: analysis.filePath,
                     changeType: analysis.changeType,
-                    gitDiffSize: analysis.gitDiffFormat.length,
+                    status: analysis.changeType === "D" ? "FILE_DELETED" 
+                      : analysis.changeType === "A" ? "FILE_ADDED" : "FILE_MODIFIED",
+                    gitDiffSize: analysis.changeType === "D" ? 0 : analysis.gitDiffFormat.length,
                     diffSummary: analysis.summary,
-                    analysisRecommendation: analysis.analysisRecommendation,
-                    status:
-                      analysis.gitDiffFormat.length > 50000
-                        ? "LARGE_DIFF"
-                        : "NORMAL",
+                    analysisRecommendation: analysis.analysisRecommendation
                   })),
                   message:
                     "Batch analysis complete. Individual git diffs omitted due to size. Use file_diff_analyze for specific files.",
                   totalResponseSize: responseSize,
                   recommendation:
-                    "Use file_diff_analyze for individual files to get full git diff format",
+                    "Use file_diff_analyze for individual files to get git diff format",
                 };
 
                 return {
@@ -1488,7 +1693,7 @@ class AWSPRReviewerServer {
               );
               return {
                 content: [
-                  { type: "text", text: JSON.stringify(result, null, 2) },
+                  { type: "text", text: JSON.stringify(diffOnlyResult, null, 2) },
                 ],
               };
             });

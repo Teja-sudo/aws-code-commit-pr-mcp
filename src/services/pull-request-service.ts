@@ -384,10 +384,10 @@ export class PullRequestService {
   }
 
   async replyToComment(
-    pullRequestId: string,
-    repositoryName: string,
-    beforeCommitId: string,
-    afterCommitId: string,
+    _pullRequestId: string,
+    _repositoryName: string,
+    _beforeCommitId: string,
+    _afterCommitId: string,
     inReplyTo: string,
     content: string,
     clientRequestToken?: string

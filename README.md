@@ -22,12 +22,15 @@ A comprehensive Model Context Protocol (MCP) server for AWS CodeCommit that enab
 - Merge pull requests with different strategies
 
 ### Code Review Capabilities
-- Get file differences between commits
-- Access complete file content for context
+- Get file differences between commits with intelligent diff analysis
+- Advanced code search within specific files with multiple pattern types
+- Repository structure exploration with formatted tree view
+- Access complete file content for context or git diff format only
 - Post comments at specific line numbers or file level
 - Edit and delete comments
 - Reply to existing comments
 - Thread-based comment conversations
+- Batch analysis of multiple files with strategic guidance
 
 ### Approval Management
 - View approval states and rules
@@ -164,12 +167,13 @@ Get details of a specific branch.
 ```
 
 #### `file_get`
-Get the content of a file at a specific commit.
+Get file content with two modes: 1) WITH beforeCommitId: Returns ONLY git diff format, 2) WITHOUT beforeCommitId: Returns full file content with line numbers.
 ```json
 {
   "repositoryName": "my-repo",
   "commitSpecifier": "main",
-  "filePath": "src/index.ts"
+  "filePath": "src/index.ts",
+  "beforeCommitId": "abc123..." // Optional: include for diff-only mode
 }
 ```
 
@@ -201,6 +205,61 @@ Get file differences between two commits.
   "afterCommitSpecifier": "feature-branch",
   "beforePath": "optional-path-filter",
   "afterPath": "optional-path-filter"
+}
+```
+
+#### `file_diff_analyze`
+Returns ONLY git diff format for a single file - no file content.
+```json
+{
+  "repositoryName": "my-repo",
+  "beforeCommitId": "abc123...",
+  "afterCommitId": "def456...",
+  "filePath": "src/index.ts",
+  "changeType": "M"
+}
+```
+
+#### `batch_diff_analyze`
+Returns ONLY git diff format for multiple files (3-5 max) - no file content.
+```json
+{
+  "repositoryName": "my-repo",
+  "beforeCommitId": "abc123...",
+  "afterCommitId": "def456...",
+  "fileDifferences": [
+    {"afterBlob": {"path": "src/file1.ts"}, "changeType": "M"},
+    {"afterBlob": {"path": "src/file2.ts"}, "changeType": "A"}
+  ]
+}
+```
+
+#### `code_search`
+Advanced code search and repository exploration with two modes: search within files and tree structure display.
+```json
+{
+  "repositoryName": "my-repo",
+  "commitSpecifier": "main",
+  "mode": "search",
+  "filePath": "src/index.ts",
+  "searchPatterns": [
+    {
+      "pattern": "function.*getData",
+      "type": "regex",
+      "caseSensitive": false
+    }
+  ]
+}
+```
+
+**Tree Mode Example:**
+```json
+{
+  "repositoryName": "my-repo",
+  "commitSpecifier": "main",
+  "mode": "tree",
+  "treePath": "/",
+  "treeDepth": 3
 }
 ```
 

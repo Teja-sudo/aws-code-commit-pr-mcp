@@ -135,9 +135,6 @@ export class IntelligentDiffAnalyzer {
     beforeContent: string,
     afterContent: string
   ): { chunks: DiffChunk[], summary: { linesAdded: number, linesRemoved: number, linesModified: number, totalChanges: number } } {
-    const beforeLines = beforeContent.split('\n');
-    const afterLines = afterContent.split('\n');
-    
     // Use the diff library for accurate line-by-line comparison
     const diff = Diff.diffLines(beforeContent, afterContent);
     
@@ -146,7 +143,7 @@ export class IntelligentDiffAnalyzer {
     let afterLineNum = 1;
     let linesAdded = 0;
     let linesRemoved = 0;
-    let linesModified = 0;
+    // let linesModified = 0; // Currently not used
     
     for (const part of diff) {
       const lines = part.value.split('\n');

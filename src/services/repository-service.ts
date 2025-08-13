@@ -10,6 +10,7 @@ import {
 } from '@aws-sdk/client-codecommit';
 import { AWSAuthManager } from '../auth/aws-auth';
 import { Repository, Branch, Commit, FileDifference, File, PaginatedResult, PaginationOptions } from '../types';
+import * as treeify from 'treeify';
 
 export class RepositoryService {
   constructor(private authManager: AWSAuthManager) {}
@@ -251,5 +252,252 @@ export class RepositoryService {
       items: filteredRepos,
       nextToken: allRepos.nextToken,
     };
+  }
+
+  async getRepositoryTree(
+    repositoryName: string, 
+    commitSpecifier: string, 
+    treePath: string = "/", 
+    maxDepth?: number
+  ): Promise<any> {
+    try {
+      // Build tree structure recursively using GetFolderCommand
+      const tree = await this.buildTreeRecursively(
+        repositoryName, 
+        commitSpecifier, 
+        treePath === "/" ? "" : treePath, 
+        0, 
+        maxDepth || 10
+      );
+      
+      // Format with treeify
+      const treeFormatted = treeify.asTree(tree, true, true);
+      
+      // Count files and folders
+      const counts = this.countFilesAndFolders(tree);
+      
+      return {
+        repositoryName,
+        commitSpecifier,
+        treePath,
+        maxDepth,
+        totalFiles: counts.files,
+        totalFolders: counts.folders,
+        treeFormatted,
+        rawStructure: tree
+      };
+    } catch (error) {
+      console.error(`Error getting repository tree:`, error);
+      throw new Error(`Could not retrieve tree for repository '${repositoryName}': ${error}`);
+    }
+  }
+
+  async searchInFile(
+    repositoryName: string,
+    commitSpecifier: string,
+    filePath: string,
+    searchPatterns: Array<{
+      pattern: string;
+      type: 'regex' | 'literal' | 'function' | 'class' | 'import' | 'variable';
+      caseSensitive?: boolean;
+    }>,
+    options: {
+      maxResults?: number;
+      includeContext?: boolean;
+      contextLines?: number;
+    } = {}
+  ): Promise<any> {
+    const { maxResults = 50, includeContext = true, contextLines = 3 } = options;
+    
+    try {
+      // Get the specific file content
+      const fileContent = await this.getFile(repositoryName, commitSpecifier, filePath);
+      const lines = fileContent.content.split('\n');
+      
+      const searchResults = [];
+      
+      for (const searchPattern of searchPatterns) {
+        const patternResults = {
+          pattern: searchPattern.pattern,
+          type: searchPattern.type,
+          matches: [] as any[],
+          totalMatches: 0
+        };
+        
+        const matches = this.performSearch(
+          lines, 
+          searchPattern, 
+          includeContext, 
+          contextLines,
+          maxResults
+        );
+        
+        patternResults.matches = matches;
+        patternResults.totalMatches = matches.length;
+        searchResults.push(patternResults);
+      }
+      
+      return {
+        repositoryName,
+        commitSpecifier,
+        filePath,
+        fileSize: fileContent.content.length,
+        totalLines: lines.length,
+        searchPatterns,
+        results: searchResults,
+        summary: {
+          totalPatterns: searchPatterns.length,
+          totalMatches: searchResults.reduce((sum, r) => sum + r.totalMatches, 0)
+        }
+      };
+    } catch (error) {
+      console.error(`Error searching in file ${filePath}:`, error);
+      throw new Error(`Could not search in file '${filePath}' in repository '${repositoryName}': ${error}`);
+    }
+  }
+
+  private async buildTreeRecursively(
+    repositoryName: string,
+    commitSpecifier: string,
+    folderPath: string,
+    currentDepth: number,
+    maxDepth: number
+  ): Promise<any> {
+    const client = await this.authManager.getClient();
+    const tree: any = {};
+    
+    if (currentDepth >= maxDepth) {
+      return tree;
+    }
+    
+    try {
+      const command = new GetFolderCommand({
+        repositoryName,
+        commitSpecifier,
+        folderPath: folderPath || "/",
+      });
+      
+      const response = await client.send(command);
+      
+      // Add files
+      if (response.files) {
+        for (const file of response.files) {
+          if (file.absolutePath) {
+            const fileName = file.absolutePath.split('/').pop() || file.absolutePath;
+            tree[fileName] = null; // null indicates it's a file for treeify
+          }
+        }
+      }
+      
+      // Add subfolders recursively
+      if (response.subFolders) {
+        for (const folder of response.subFolders) {
+          if (folder.absolutePath) {
+            const folderName = folder.absolutePath.split('/').pop() || folder.absolutePath;
+            tree[folderName] = await this.buildTreeRecursively(
+              repositoryName,
+              commitSpecifier,
+              folder.absolutePath,
+              currentDepth + 1,
+              maxDepth
+            );
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Error getting folder ${folderPath}:`, error);
+      // If we can't access this folder, return empty tree
+    }
+    
+    return tree;
+  }
+
+  private countFilesAndFolders(tree: any): { files: number, folders: number } {
+    let files = 0;
+    let folders = 0;
+    
+    for (const [_key, value] of Object.entries(tree)) {
+      if (value === null) {
+        files++;
+      } else if (typeof value === 'object') {
+        folders++;
+        const subCounts = this.countFilesAndFolders(value);
+        files += subCounts.files;
+        folders += subCounts.folders;
+      }
+    }
+    
+    return { files, folders };
+  }
+
+  private performSearch(
+    lines: string[],
+    searchPattern: any,
+    includeContext: boolean,
+    contextLines: number,
+    maxResults: number
+  ): any[] {
+    const matches: any[] = [];
+    const { pattern, type, caseSensitive = false } = searchPattern;
+    
+    let searchRegex: RegExp;
+    
+    try {
+      switch (type) {
+        case 'regex':
+          // Handle regex patterns
+          if (pattern.startsWith('/') && pattern.includes('/', 1)) {
+            const lastSlash = pattern.lastIndexOf('/');
+            const regexPattern = pattern.slice(1, lastSlash);
+            const flags = pattern.slice(lastSlash + 1);
+            searchRegex = new RegExp(regexPattern, flags);
+          } else {
+            searchRegex = new RegExp(pattern, caseSensitive ? 'g' : 'gi');
+          }
+          break;
+        case 'function':
+          searchRegex = new RegExp(`(function\\s+${pattern}\\s*\\(|${pattern}\\s*[:=]\\s*function|${pattern}\\s*\\([^)]*\\)\\s*=>)`, caseSensitive ? 'g' : 'gi');
+          break;
+        case 'class':
+          searchRegex = new RegExp(`class\\s+${pattern}\\b`, caseSensitive ? 'g' : 'gi');
+          break;
+        case 'import':
+          searchRegex = new RegExp(`(import.*${pattern}|from\\s+['"].*${pattern})`, caseSensitive ? 'g' : 'gi');
+          break;
+        case 'variable':
+          searchRegex = new RegExp(`\\b${pattern}\\b`, caseSensitive ? 'g' : 'gi');
+          break;
+        case 'literal':
+        default:
+          searchRegex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), caseSensitive ? 'g' : 'gi');
+          break;
+      }
+      
+      lines.forEach((line, lineIndex) => {
+        if (matches.length >= maxResults) return;
+        
+        const lineMatches = line.match(searchRegex);
+        if (lineMatches) {
+          const contextStart = Math.max(0, lineIndex - contextLines);
+          const contextEnd = Math.min(lines.length - 1, lineIndex + contextLines);
+          
+          const context = includeContext ? {
+            before: lines.slice(contextStart, lineIndex),
+            after: lines.slice(lineIndex + 1, contextEnd + 1)
+          } : null;
+          
+          matches.push({
+            lineNumber: lineIndex + 1,
+            line: line.trim(),
+            matchCount: lineMatches.length,
+            context
+          });
+        }
+      });
+    } catch (error) {
+      console.error(`Error creating search regex for pattern '${pattern}':`, error);
+    }
+    
+    return matches;
   }
 }
