@@ -37,7 +37,9 @@ export class PullRequestService {
 
   constructor(private authManager: AWSAuthManager) {
     this.repositoryService = new RepositoryService(authManager);
-    this.linePositionCalculator = new LinePositionCalculator(this.repositoryService);
+    this.linePositionCalculator = new LinePositionCalculator(
+      this.repositoryService
+    );
   }
 
   async listPullRequests(
@@ -193,20 +195,35 @@ export class PullRequestService {
 
   async getComments(
     pullRequestId: string,
-    repositoryName: string,
+    repositoryName?: string,
     beforeCommitId?: string,
     afterCommitId?: string,
     options: PaginationOptions = {}
   ): Promise<PaginatedResult<PullRequestComment>> {
     const client = await this.authManager.getClient();
-    const command = new GetCommentsForPullRequestCommand({
+
+    // AWS API has conditional requirements:
+    // 1. Simple usage: Only pullRequestId (gets all comments)
+    // 2. Filtered usage: pullRequestId + repositoryName + beforeCommitId + afterCommitId (filtered by commit range)
+    const commandParams: any = {
       pullRequestId,
-      repositoryName,
-      beforeCommitId,
-      afterCommitId,
       nextToken: options.nextToken,
       maxResults: options.maxResults || 100,
-    });
+    };
+
+    // If repositoryName is provided, we MUST also have both commit IDs for filtered usage
+    if (repositoryName && beforeCommitId && afterCommitId) {
+      commandParams.repositoryName = repositoryName;
+      commandParams.beforeCommitId = beforeCommitId;
+      commandParams.afterCommitId = afterCommitId;
+    }
+    // If repositoryName is provided but commit IDs are missing, that's an error
+    else if (repositoryName && (!beforeCommitId || !afterCommitId)) {
+      throw new Error("When repositoryName is provided, both beforeCommitId and afterCommitId are required for AWS CodeCommit API");
+    }
+    // Otherwise, use simple mode with only pullRequestId
+
+    const command = new GetCommentsForPullRequestCommand(commandParams);
 
     const response = await client.send(command);
 
@@ -257,37 +274,43 @@ export class PullRequestService {
     clientRequestToken?: string
   ): Promise<PullRequestComment> {
     const client = await this.authManager.getClient();
-    
+
     let validatedLocation = location;
-    
+
     // Validate and adjust line position using proper diff-based calculation
     if (location && location.filePosition) {
       try {
-        const adjustedLinePosition = await this.linePositionCalculator.validateAndAdjustLinePosition(
-          repositoryName,
-          location.filePath,
-          location.filePosition,
-          location.relativeFileVersion === 'BEFORE' ? beforeCommitId : afterCommitId,
-          location.relativeFileVersion
-        );
-        
+        const adjustedLinePosition =
+          await this.linePositionCalculator.validateAndAdjustLinePosition(
+            repositoryName,
+            location.filePath,
+            location.filePosition,
+            location.relativeFileVersion === "BEFORE"
+              ? beforeCommitId
+              : afterCommitId,
+            location.relativeFileVersion
+          );
+
         validatedLocation = {
           ...location,
-          filePosition: adjustedLinePosition
+          filePosition: adjustedLinePosition,
         };
-        
-        console.error('Line position validated and adjusted:', {
+
+        console.error("Line position validated and adjusted:", {
           originalPosition: location.filePosition,
           adjustedPosition: adjustedLinePosition,
           filePath: location.filePath,
-          relativeFileVersion: location.relativeFileVersion
+          relativeFileVersion: location.relativeFileVersion,
         });
       } catch (error) {
-        console.error('Failed to validate line position, using original:', error);
+        console.error(
+          "Failed to validate line position, using original:",
+          error
+        );
         // Keep original location if validation fails
       }
     }
-    
+
     const command = new PostCommentForPullRequestCommand({
       pullRequestId,
       repositoryName,
@@ -298,10 +321,10 @@ export class PullRequestService {
       clientRequestToken,
     });
 
-    console.error('Posting comment with validated location:', {
+    console.error("Posting comment with validated location:", {
       filePath: validatedLocation?.filePath,
       filePosition: validatedLocation?.filePosition,
-      relativeFileVersion: validatedLocation?.relativeFileVersion
+      relativeFileVersion: validatedLocation?.relativeFileVersion,
     });
 
     const response = await client.send(command);

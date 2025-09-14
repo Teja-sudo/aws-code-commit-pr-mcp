@@ -31,7 +31,7 @@ export interface PullRequest {
   description?: string;
   lastActivityDate?: Date;
   creationDate?: Date;
-  pullRequestStatus: 'OPEN' | 'CLOSED';
+  pullRequestStatus: "OPEN" | "CLOSED";
   authorArn: string;
   revisionId: string;
   clientRequestToken?: string;
@@ -62,7 +62,7 @@ export interface ApprovalRule {
 
 export interface ApprovalState {
   revisionId: string;
-  approvalStatus: 'APPROVE' | 'REVOKE';
+  approvalStatus: "APPROVE" | "REVOKE";
 }
 
 export interface MergeMetadata {
@@ -85,7 +85,7 @@ export interface Comment {
 
 export interface PullRequestComment extends Comment {
   pullRequestId: string;
-  repositoryName: string;
+  repositoryName?: string;
   beforeCommitId?: string;
   afterCommitId?: string;
   location?: CommentLocation;
@@ -94,13 +94,13 @@ export interface PullRequestComment extends Comment {
 export interface CommentLocation {
   filePath: string;
   filePosition?: number;
-  relativeFileVersion: 'BEFORE' | 'AFTER';
+  relativeFileVersion: "BEFORE" | "AFTER";
 }
 
 export interface Difference {
   beforeBlob?: BlobMetadata;
   afterBlob?: BlobMetadata;
-  changeType: 'A' | 'D' | 'M';
+  changeType: "A" | "D" | "M";
 }
 
 export interface BlobMetadata {
@@ -110,7 +110,7 @@ export interface BlobMetadata {
 }
 
 export interface FileDifference {
-  changeType: 'A' | 'D' | 'M';
+  changeType: "A" | "D" | "M";
   beforeBlob?: BlobMetadata;
   afterBlob?: BlobMetadata;
 }

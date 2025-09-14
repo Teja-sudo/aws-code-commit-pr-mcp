@@ -58,8 +58,8 @@ class AWSPRReviewerServer {
         tools: [
           // RECOMMENDED PR REVIEW WORKFLOW:
           // 1. repos_list → find repository
-          // 2. prs_list → find PR to review
-          // 3. pr_get → get PR details & extract mergeBase + sourceCommit from targets[0]
+          // 2. prs_list → find PR
+          // 3. pr_get → get PR details like repo name & extract mergeBase + sourceCommit from targets[0] for the given pr id
           // 4. diff_get → identify changed files (use mergeBase as beforeCommitSpecifier)
           // 5. batch_diff_analyze → get intelligent recommendations for all files (max 3-5 files per call)
           // 6. Based on recommendations:
@@ -75,7 +75,7 @@ class AWSPRReviewerServer {
           {
             name: "repos_list",
             description:
-              "Lists all AWS CodeCommit repositories you have access to. Use this when: 1) Starting a code review session to see available repos, 2) User asks about repositories, 3) Need to find a specific repo by name. Returns repository metadata including name, ID, description, default branch, creation date, and clone URLs. Supports search filtering and pagination for large lists. Essential first step for any repository operations.",
+              "Lists all AWS CodeCommit repositories you have access to. Use this when: 1) User asks about repositories, 2) Need to find a specific repo details by name. Returns repository metadata including name, ID, description, default branch, creation date, and clone URLs. Supports search filtering and pagination for large lists. Essential first step for any repository operations.",
             inputSchema: {
               type: "object",
               properties: {
@@ -100,7 +100,7 @@ class AWSPRReviewerServer {
           {
             name: "repo_get",
             description:
-              "Gets detailed information about a specific repository including metadata, default branch, clone URLs, creation date, and description. Use this when: 1) User asks about a specific repository, 2) Need repo details before operations, 3) Want to show repo information. Provides complete repository context needed for code review and PR operations.",
+              "Gets detailed information about a specific repository including metadata, default branch, clone URLs, creation date, and description. Use this when: 1) User asks about a specific repository, 2) Need repo details, 3) Want to show repo information. Provides complete repository context needed for code review and PR operations.",
             inputSchema: {
               type: "object",
               properties: {
@@ -116,7 +116,7 @@ class AWSPRReviewerServer {
           {
             name: "branches_list",
             description:
-              "Lists all branches in a repository with their latest commit IDs. Use this when: 1) Starting PR review to see available branches, 2) User asks about branches, 3) Need to find source/target branches for PRs, 4) Checking branch structure. Essential for understanding repository branch topology and selecting correct branches for comparisons and PRs.",
+              "Lists all branches in a repository with their latest commit IDs. Use this when: 1) To see available branches, 2) User asks about branches, 3) Need to find source/target branches for PRs, 4) Checking branch structure. Essential for understanding repository branch topology and selecting correct branches for comparisons and PRs.",
             inputSchema: {
               type: "object",
               properties: {
@@ -643,7 +643,7 @@ class AWSPRReviewerServer {
           {
             name: "comments_get",
             description:
-              "Gets all comments on a pull request including general comments and line-specific comments. CRITICAL for PR review workflow. Use when: 1) Starting PR review to see existing feedback, 2) Understanding review conversation, 3) Checking if issues already raised. Returns comment threads with author, content, timestamps, and locations.",
+              "Gets all comments on a pull request including general comments and line-specific comments. CRITICAL for PR review workflow. Use when: 1) Starting PR review to see existing feedback, 2) Understanding review conversation, 3) Checking if issues already raised. AWS API has conditional requirements: 1) Simple usage: Only provide pullRequestId to get ALL comments for the PR, 2) Filtered usage: Provide pullRequestId + repositoryName + beforeCommitId + afterCommitId together to filter comments by specific commit range.",
             inputSchema: {
               type: "object",
               properties: {
@@ -653,24 +653,25 @@ class AWSPRReviewerServer {
                 },
                 repositoryName: {
                   type: "string",
-                  description: "Repository containing the PR",
+                  description:
+                    "Optional: Repository containing the PR. When provided, BOTH beforeCommitId and afterCommitId must also be provided to filter comments by commit range.",
                 },
                 beforeCommitId: {
                   type: "string",
                   description:
-                    "Optional: Before commit ID to filter comments to specific commit range. Use mergeBase from PR details.",
+                    "Optional: Before commit ID to filter comments to specific commit range. REQUIRED if repositoryName is provided. Use destinationCommit from PR details (tip of destination branch when PR was created).",
                 },
                 afterCommitId: {
                   type: "string",
                   description:
-                    "Optional: After commit ID to filter comments to specific commit range. Use sourceCommit from PR details.",
+                    "Optional: After commit ID to filter comments to specific commit range. REQUIRED if repositoryName is provided. Use sourceCommit from PR details (tip of source branch when comment was made).",
                 },
                 nextToken: {
                   type: "string",
                   description: "Pagination for PRs with many comments",
                 },
               },
-              required: ["pullRequestId", "repositoryName"],
+              required: ["pullRequestId"],
             },
           },
           {
@@ -706,18 +707,18 @@ class AWSPRReviewerServer {
                 filePath: {
                   type: "string",
                   description:
-                    'Optional: File path for line-specific comment (e.g., "src/main.py"). Omit for general PR comment.',
+                    'Optional: File path for line-specific comment (e.g., "src/main.py"). Omit for general PR comment. When provided, filePosition and relativeFileVersion must also be provided.',
                 },
                 filePosition: {
                   type: "number",
                   description:
-                    "Optional: Line number for line-specific comment. Use with filePath for precise code feedback.",
+                    "Optional: Line number for line-specific comment. REQUIRED if filePath is provided. Use with filePath for precise code feedback.",
                 },
                 relativeFileVersion: {
                   type: "string",
                   enum: ["BEFORE", "AFTER"],
                   description:
-                    "Optional: BEFORE for original file version, AFTER for changed file version. Use AFTER for comments on new code.",
+                    "Optional: BEFORE for original file version, AFTER for changed file version. REQUIRED if filePath is provided. Use AFTER for comments on new code.",
                 },
                 clientRequestToken: {
                   type: "string",
