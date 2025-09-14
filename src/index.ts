@@ -237,31 +237,44 @@ class AWSPRReviewerServer {
                 },
                 commitSpecifier: {
                   type: "string",
-                  description: "Branch name or commit ID to search at (e.g., 'main', 'develop', or specific commit ID)",
+                  description:
+                    "Branch name or commit ID to search at (e.g., 'main', 'develop', or specific commit ID)",
                 },
                 mode: {
                   type: "string",
                   enum: ["search", "tree"],
-                  description: "Operation mode: 'search' for code pattern searching, 'tree' for repository structure listing",
+                  description:
+                    "Operation mode: 'search' for code pattern searching, 'tree' for repository structure listing",
                 },
                 filePath: {
                   type: "string",
-                  description: "Required for search mode. Exact file path to search within (e.g., 'src/main.js', 'components/Header.tsx')",
+                  description:
+                    "Required for search mode. Exact file path to search within (e.g., 'src/main.js', 'components/Header.tsx')",
                 },
                 searchPatterns: {
                   type: "array",
-                  description: "Required for search mode. Array of search patterns to find within the specified file",
+                  description:
+                    "Required for search mode. Array of search patterns to find within the specified file",
                   items: {
                     type: "object",
                     properties: {
                       pattern: {
                         type: "string",
-                        description: "Search pattern - regex (/pattern/flags), function name, class name, or literal string",
+                        description:
+                          "Search pattern - regex (/pattern/flags), function name, class name, or literal string",
                       },
                       type: {
                         type: "string",
-                        enum: ["regex", "literal", "function", "class", "import", "variable"],
-                        description: "Search type: regex for complex patterns, literal for exact text, function/class for definitions, import for dependencies",
+                        enum: [
+                          "regex",
+                          "literal",
+                          "function",
+                          "class",
+                          "import",
+                          "variable",
+                        ],
+                        description:
+                          "Search type: regex for complex patterns, literal for exact text, function/class for definitions, import for dependencies",
                       },
                       caseSensitive: {
                         type: "boolean",
@@ -273,28 +286,34 @@ class AWSPRReviewerServer {
                 },
                 treePath: {
                   type: "string",
-                  description: "For tree mode: Root path to list (default: repository root). Use '/' for root or 'src/' for specific folder",
+                  description:
+                    "For tree mode: Root path to list (default: repository root). Use '/' for root or 'src/' for specific folder",
                 },
                 treeDepth: {
                   type: "number",
-                  description: "For tree mode: Maximum depth to show (default: unlimited). Use 1 for top-level only, 2 for one level deep, etc.",
+                  description:
+                    "For tree mode: Maximum depth to show (default: unlimited). Use 1 for top-level only, 2 for one level deep, etc.",
                 },
                 maxResults: {
                   type: "number",
-                  description: "For search mode: Maximum results per pattern (default: 50, max: 200)",
+                  description:
+                    "For search mode: Maximum results per pattern (default: 50, max: 200)",
                 },
                 includeContext: {
                   type: "boolean",
-                  description: "For search mode: Include surrounding lines (default: true)",
+                  description:
+                    "For search mode: Include surrounding lines (default: true)",
                 },
                 contextLines: {
                   type: "number",
-                  description: "For search mode: Context lines before/after match (default: 3, max: 10)",
+                  description:
+                    "For search mode: Context lines before/after match (default: 3, max: 10)",
                 },
                 excludePaths: {
                   type: "array",
                   items: { type: "string" },
-                  description: "Paths to exclude (e.g., ['node_modules', 'dist', '.git'])",
+                  description:
+                    "Paths to exclude (e.g., ['node_modules', 'dist', '.git'])",
                 },
               },
               required: ["repositoryName", "commitSpecifier", "mode"],
@@ -698,7 +717,7 @@ class AWSPRReviewerServer {
                   type: "string",
                   enum: ["BEFORE", "AFTER"],
                   description:
-                    "Optional: BEFORE for original file version, AFTER for changed file version. Use AFTER for comments on new/modified code.",
+                    "Optional: BEFORE for original file version, AFTER for changed file version. Use AFTER for comments on new code.",
                 },
                 clientRequestToken: {
                   type: "string",
@@ -1227,12 +1246,13 @@ class AWSPRReviewerServer {
                             "Modified (M) - git diff format only due to file size",
                         },
                         contextGuidance: {
-                          suggestion: "File too large for full content. Use code_search to find specific patterns in this file.",
+                          suggestion:
+                            "File too large for full content. Use code_search to find specific patterns in this file.",
                           alternatives: [
                             "Use code_search in 'search' mode with this file path to find specific functions/classes",
-                            "Use code_search in 'tree' mode to explore related smaller files"
-                          ]
-                        }
+                            "Use code_search in 'tree' mode to explore related smaller files",
+                          ],
+                        },
                       };
                       return {
                         content: [
@@ -1249,7 +1269,8 @@ class AWSPRReviewerServer {
                       filePath: args.filePath,
                       gitDiffFormat: diffAnalysis.gitDiffFormat,
                       status: "DIFF_ONLY_RESPONSE",
-                      message: "Returning git diff format only (beforeCommitId provided). For full file content, use file_get without beforeCommitId.",
+                      message:
+                        "Returning git diff format only (beforeCommitId provided). For full file content, use file_get without beforeCommitId.",
                       totalLines: fileResult.content.split("\n").length,
                       analysisType: "diff_only",
                       diffSummary: diffAnalysis.summary,
@@ -1259,16 +1280,16 @@ class AWSPRReviewerServer {
                         totalChanges: diffAnalysis.summary.totalChanges,
                         complexity:
                           diffAnalysis.analysisRecommendation.complexity,
-                        changeType:
-                          "Modified (M) - git diff format only",
+                        changeType: "Modified (M) - git diff format only",
                       },
                       contextGuidance: {
-                        suggestion: "If diff doesn't provide enough context, use file_get without beforeCommitId for full content",
+                        suggestion:
+                          "If diff doesn't provide enough context, use file_get without beforeCommitId for full content",
                         alternatives: [
                           "Use code_search in 'search' mode to find specific patterns in this file",
-                          "Use code_search in 'tree' mode to explore related files"
-                        ]
-                      }
+                          "Use code_search in 'tree' mode to explore related files",
+                        ],
+                      },
                     };
 
                     console.error(
@@ -1407,16 +1428,16 @@ class AWSPRReviewerServer {
           case "code_search":
             return await retryWithBackoff(async () => {
               const mode = args.mode as "search" | "tree";
-              
+
               if (mode === "tree") {
                 // Tree mode - list repository structure
                 const result = await this.repositoryService.getRepositoryTree(
                   args.repositoryName as string,
                   args.commitSpecifier as string,
-                  args.treePath as string || "/",
+                  (args.treePath as string) || "/",
                   args.treeDepth as number
                 );
-                
+
                 return {
                   content: [
                     { type: "text", text: JSON.stringify(result, null, 2) },
@@ -1426,27 +1447,29 @@ class AWSPRReviewerServer {
                 // Search mode - find code patterns in specific file
                 const filePath = args.filePath as string;
                 const searchPatterns = args.searchPatterns as any[];
-                
+
                 if (!filePath) {
                   throw new Error("File path is required for search mode");
                 }
-                
+
                 if (!searchPatterns || searchPatterns.length === 0) {
-                  throw new Error("Search patterns are required for search mode");
+                  throw new Error(
+                    "Search patterns are required for search mode"
+                  );
                 }
-                
+
                 const result = await this.repositoryService.searchInFile(
                   args.repositoryName as string,
                   args.commitSpecifier as string,
                   filePath,
                   searchPatterns,
                   {
-                    maxResults: args.maxResults as number || 50,
-                    includeContext: args.includeContext as boolean ?? true,
-                    contextLines: args.contextLines as number || 3
+                    maxResults: (args.maxResults as number) || 50,
+                    includeContext: (args.includeContext as boolean) ?? true,
+                    contextLines: (args.contextLines as number) || 3,
                   }
                 );
-                
+
                 return {
                   content: [
                     { type: "text", text: JSON.stringify(result, null, 2) },
@@ -1492,7 +1515,7 @@ class AWSPRReviewerServer {
           case "file_diff_analyze":
             return await retryWithBackoff(async () => {
               const changeType = args.changeType as "A" | "D" | "M";
-              
+
               // Handle deleted files - no diff content needed
               if (changeType === "D") {
                 const result = {
@@ -1504,21 +1527,23 @@ class AWSPRReviewerServer {
                     linesAdded: 0,
                     linesRemoved: 0,
                     linesModified: 0,
-                    totalChanges: 1
+                    totalChanges: 1,
                   },
                   analysisRecommendation: {
                     needsFullFile: false,
                     reason: "File was deleted - no content analysis needed",
                     contextLines: 0,
-                    complexity: "low" as const
-                  }
+                    complexity: "low" as const,
+                  },
                 };
-                
+
                 return {
-                  content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                  content: [
+                    { type: "text", text: JSON.stringify(result, null, 2) },
+                  ],
                 };
               }
-              
+
               // For new (A) and modified (M) files, get diff analysis
               const result = await this.diffAnalyzer.analyzeFileDiff(
                 args.repositoryName as string,
@@ -1565,19 +1590,23 @@ class AWSPRReviewerServer {
                 changeType: result.changeType,
                 gitDiffFormat: result.gitDiffFormat,
                 status: changeType === "A" ? "FILE_ADDED" : "FILE_MODIFIED",
-                message: changeType === "A" 
-                  ? `New file '${args.filePath}' added - showing diff format`
-                  : `File '${args.filePath}' modified - showing diff format`,
+                message:
+                  changeType === "A"
+                    ? `New file '${args.filePath}' added - showing diff format`
+                    : `File '${args.filePath}' modified - showing diff format`,
                 diffSummary: result.summary,
-                analysisRecommendation: result.analysisRecommendation
+                analysisRecommendation: result.analysisRecommendation,
               };
-              
+
               console.error(
                 `Diff analysis for ${args.filePath}: ${gitDiffSize} characters, ${result.summary.totalChanges} changes`
               );
               return {
                 content: [
-                  { type: "text", text: JSON.stringify(diffOnlyResult, null, 2) },
+                  {
+                    type: "text",
+                    text: JSON.stringify(diffOnlyResult, null, 2),
+                  },
                 ],
               };
             });
@@ -1630,24 +1659,28 @@ class AWSPRReviewerServer {
                         linesAdded: 0,
                         linesRemoved: 0,
                         linesModified: 0,
-                        totalChanges: 1
+                        totalChanges: 1,
                       },
-                      analysisRecommendation: analysis.analysisRecommendation
+                      analysisRecommendation: analysis.analysisRecommendation,
                     };
                   }
-                  
+
                   return {
                     filePath: analysis.filePath,
                     changeType: analysis.changeType,
                     gitDiffFormat: analysis.gitDiffFormat,
-                    status: analysis.changeType === "A" ? "FILE_ADDED" : "FILE_MODIFIED",
-                    message: analysis.changeType === "A" 
-                      ? `New file '${analysis.filePath}' added`
-                      : `File '${analysis.filePath}' modified`,
+                    status:
+                      analysis.changeType === "A"
+                        ? "FILE_ADDED"
+                        : "FILE_MODIFIED",
+                    message:
+                      analysis.changeType === "A"
+                        ? `New file '${analysis.filePath}' added`
+                        : `File '${analysis.filePath}' modified`,
                     diffSummary: analysis.summary,
-                    analysisRecommendation: analysis.analysisRecommendation
+                    analysisRecommendation: analysis.analysisRecommendation,
                   };
-                })
+                }),
               };
 
               // Check response size with diff-only format
@@ -1665,11 +1698,18 @@ class AWSPRReviewerServer {
                   files: result.analyses.map((analysis) => ({
                     filePath: analysis.filePath,
                     changeType: analysis.changeType,
-                    status: analysis.changeType === "D" ? "FILE_DELETED" 
-                      : analysis.changeType === "A" ? "FILE_ADDED" : "FILE_MODIFIED",
-                    gitDiffSize: analysis.changeType === "D" ? 0 : analysis.gitDiffFormat.length,
+                    status:
+                      analysis.changeType === "D"
+                        ? "FILE_DELETED"
+                        : analysis.changeType === "A"
+                        ? "FILE_ADDED"
+                        : "FILE_MODIFIED",
+                    gitDiffSize:
+                      analysis.changeType === "D"
+                        ? 0
+                        : analysis.gitDiffFormat.length,
                     diffSummary: analysis.summary,
-                    analysisRecommendation: analysis.analysisRecommendation
+                    analysisRecommendation: analysis.analysisRecommendation,
                   })),
                   message:
                     "Batch analysis complete. Individual git diffs omitted due to size. Use file_diff_analyze for specific files.",
@@ -1693,7 +1733,10 @@ class AWSPRReviewerServer {
               );
               return {
                 content: [
-                  { type: "text", text: JSON.stringify(diffOnlyResult, null, 2) },
+                  {
+                    type: "text",
+                    text: JSON.stringify(diffOnlyResult, null, 2),
+                  },
                 ],
               };
             });
@@ -1989,7 +2032,7 @@ class AWSPRReviewerServer {
             });
 
           // AWS Credential Management Tools
-          case "aws_creds_refresh":
+          case "aws_creds_refresh": {
             console.error("=== AWS CREDENTIALS REFRESH STARTED ===");
             await this.authManager.refreshCredentials();
             await this.reinitializeServices();
@@ -2002,6 +2045,7 @@ class AWSPRReviewerServer {
                 },
               ],
             };
+          }
 
           case "aws_profile_switch":
             console.error(
@@ -2021,22 +2065,25 @@ class AWSPRReviewerServer {
               ],
             };
 
-          case "aws_profiles_list":
+          case "aws_profiles_list": {
             const profiles = this.authManager.getAvailableProfiles();
             return {
               content: [
                 { type: "text", text: JSON.stringify(profiles, null, 2) },
               ],
             };
+          }
 
-          case "aws_creds_status":
+          case "aws_creds_status": {
             const credentials = this.authManager.getCredentials();
             const isValid = this.authManager.isCredentialsValid();
             const status = {
               hasCredentials: !!credentials,
               isValid,
               accessKeyId:
-                credentials?.accessKeyId?.substring(0, 8) + "..." || "Not set",
+                credentials?.accessKeyId?.slice(0, 8) +
+                  "..." +
+                  credentials?.accessKeyId?.slice(-6) || "Not set",
               expiration:
                 credentials?.expiration?.toISOString() || "No expiration",
             };
@@ -2045,6 +2092,7 @@ class AWSPRReviewerServer {
                 { type: "text", text: JSON.stringify(status, null, 2) },
               ],
             };
+          }
 
           default:
             throw new Error(`Unknown tool: ${name}`);
