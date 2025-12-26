@@ -1,4 +1,4 @@
-import { PaginatedResult, PaginationOptions } from '../types';
+import { PaginatedResult, PaginationOptions } from '../types/index.js';
 
 export function createPaginationOptions(
   nextToken?: string,

@@ -1,5 +1,5 @@
-import { RepositoryService } from "../services/repository-service";
-import { FileDifference } from "../types";
+import { RepositoryService } from "../services/repository-service.js";
+import { FileDifference } from "../types/index.js";
 import * as Diff from "diff";
 
 export interface DiffChunk {

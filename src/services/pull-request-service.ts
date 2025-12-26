@@ -19,9 +19,9 @@ import {
   MergePullRequestBySquashCommand,
   MergePullRequestByThreeWayCommand,
 } from "@aws-sdk/client-codecommit";
-import { AWSAuthManager } from "../auth/aws-auth";
-import { RepositoryService } from "./repository-service";
-import { LinePositionCalculator } from "../utils/line-position-calculator";
+import { AWSAuthManager } from "../auth/aws-auth.js";
+import { RepositoryService } from "./repository-service.js";
+import { LinePositionCalculator } from "../utils/line-position-calculator.js";
 import {
   PullRequest,
   PullRequestComment,

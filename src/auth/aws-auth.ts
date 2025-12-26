@@ -1,6 +1,6 @@
 import { CodeCommitClient } from "@aws-sdk/client-codecommit";
 import { fromIni, fromEnv } from "@aws-sdk/credential-providers";
-import { AWSCredentials, MCPConfig } from "../types";
+import { AWSCredentials, MCPConfig } from "../types/index.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";

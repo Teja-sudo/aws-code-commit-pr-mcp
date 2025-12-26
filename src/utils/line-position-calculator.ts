@@ -1,4 +1,4 @@
-import { RepositoryService } from '../services/repository-service';
+import { RepositoryService } from '../services/repository-service.js';
 
 /**
  * Utility for calculating and validating line positions for AWS CodeCommit comments

@@ -8,8 +8,8 @@ import {
   GetFileCommand,
   GetFolderCommand,
 } from '@aws-sdk/client-codecommit';
-import { AWSAuthManager } from '../auth/aws-auth';
-import { Repository, Branch, Commit, FileDifference, File, PaginatedResult, PaginationOptions } from '../types';
+import { AWSAuthManager } from '../auth/aws-auth.js';
+import { Repository, Branch, Commit, FileDifference, File, PaginatedResult, PaginationOptions } from '../types/index.js';
 import * as treeify from 'treeify';
 
 export class RepositoryService {
