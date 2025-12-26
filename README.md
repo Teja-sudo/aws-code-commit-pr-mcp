@@ -92,6 +92,33 @@ A comprehensive Model Context Protocol (MCP) server for AWS CodeCommit that enab
    export AWS_REGION=us-east-1
    ```
 
+### WSL (Windows Subsystem for Linux) Support
+
+The server automatically detects WSL environments and intelligently searches for AWS credentials in both Linux and Windows locations:
+
+1. **First checks**: `~/.aws/credentials` (WSL/Linux home directory)
+2. **Then checks**: `/mnt/c/Users/*/`.aws/credentials` (Windows user directories)
+
+**How it works:**
+- The server detects WSL by checking `/proc/version` for "microsoft" or "WSL"
+- It searches all Windows user directories under `/mnt/c/Users/`
+- Uses the first valid credentials file found
+- No manual configuration needed - just ensure credentials exist in Windows
+
+**No action needed** if you have AWS credentials configured in Windows - the server will find them automatically when running in WSL!
+
+**Alternative approaches:**
+- **Symlink** (recommended for better performance):
+  ```bash
+  ln -s /mnt/c/Users/<your-windows-username>/.aws ~/.aws
+  ```
+
+- **Copy credentials** to WSL:
+  ```bash
+  mkdir -p ~/.aws
+  cp /mnt/c/Users/<your-windows-username>/.aws/* ~/.aws/
+  ```
+
 ## Usage
 
 ### MCP Client Configuration

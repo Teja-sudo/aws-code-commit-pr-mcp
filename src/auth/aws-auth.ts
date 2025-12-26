@@ -31,10 +31,27 @@ export class AWSAuthManager {
           sessionToken: this.config.awsSessionToken,
         };
       } else if (this.config.awsProfile) {
-        credentialProvider = fromIni({
-          profile: this.config.awsProfile,
-          ignoreCache: Boolean(isRefresh),
-        });
+        const credentialsPath = this.getCredentialsPath();
+        const defaultCredPath = path.join(os.homedir(), ".aws", "credentials");
+
+        // Only specify custom paths if credentials are in a non-default location
+        if (credentialsPath && credentialsPath !== defaultCredPath) {
+          const configPath = credentialsPath.replace("credentials", "config");
+          console.error(`Using credentials from: ${credentialsPath}`);
+
+          credentialProvider = fromIni({
+            profile: this.config.awsProfile,
+            ignoreCache: Boolean(isRefresh),
+            filepath: credentialsPath,
+            configFilepath: configPath,
+          });
+        } else {
+          // Use default AWS SDK path resolution
+          credentialProvider = fromIni({
+            profile: this.config.awsProfile,
+            ignoreCache: Boolean(isRefresh),
+          });
+        }
       } else {
         credentialProvider = fromEnv();
       }
@@ -231,10 +248,83 @@ export class AWSAuthManager {
     return true;
   }
 
+  private getCredentialsPath(): string | null {
+    // Try multiple paths in order of preference
+    const pathsToTry = [
+      // 1. Standard WSL/Linux home directory
+      path.join(os.homedir(), ".aws", "credentials"),
+    ];
+
+    // 2. If running in WSL, also check Windows user directories
+    if (this.isWSL()) {
+      const windowsUsers = this.getWindowsUserPaths();
+      windowsUsers.forEach((userPath) => {
+        pathsToTry.push(path.join(userPath, ".aws", "credentials"));
+      });
+    }
+
+    // Return the first path that exists
+    for (const credPath of pathsToTry) {
+      if (fs.existsSync(credPath)) {
+        console.error(`Found AWS credentials at: ${credPath}`);
+        return credPath;
+      }
+    }
+
+    console.error(
+      `AWS credentials not found. Searched paths: ${pathsToTry.join(", ")}`
+    );
+    return null;
+  }
+
+  private isWSL(): boolean {
+    try {
+      if (process.platform !== "linux") return false;
+
+      // Check /proc/version for WSL indicators
+      if (fs.existsSync("/proc/version")) {
+        const procVersion = fs.readFileSync("/proc/version", "utf8");
+        return (
+          procVersion.toLowerCase().includes("microsoft") ||
+          procVersion.toLowerCase().includes("wsl")
+        );
+      }
+    } catch (error) {
+      // Ignore errors, assume not WSL
+    }
+    return false;
+  }
+
+  private getWindowsUserPaths(): string[] {
+    const paths: string[] = [];
+
+    try {
+      // Try to find Windows user directories in /mnt/c/Users/
+      const usersDir = "/mnt/c/Users";
+      if (fs.existsSync(usersDir)) {
+        const userDirs = fs.readdirSync(usersDir, { withFileTypes: true });
+        for (const dir of userDirs) {
+          if (
+            dir.isDirectory() &&
+            !["Public", "Default", "All Users", "Default User"].includes(
+              dir.name
+            )
+          ) {
+            paths.push(path.join(usersDir, dir.name));
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Failed to enumerate Windows user directories:", error);
+    }
+
+    return paths;
+  }
+
   getAvailableProfiles(): string[] {
     try {
-      const credentialsPath = path.join(os.homedir(), ".aws", "credentials");
-      if (!fs.existsSync(credentialsPath)) {
+      const credentialsPath = this.getCredentialsPath();
+      if (!credentialsPath) {
         return [];
       }
 
