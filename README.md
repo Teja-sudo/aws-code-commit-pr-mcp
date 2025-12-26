@@ -113,6 +113,46 @@ Add this server to your MCP client configuration:
 }
 ```
 
+### Claude Code MCP Configuration
+
+#### Quick Install (Recommended)
+
+Use the Claude Code CLI to add the server at user scope:
+
+```bash
+claude mcp add-json aws-pr-reviewer --scope user '{
+  "command": "npx",
+  "args": ["-y", "@tejasanik/aws-pr-reviewer"],
+  "env": {
+    "AWS_PROFILE": "your-profile-name",
+    "AWS_REGION": "us-east-1"
+  }
+}'
+```
+
+This adds the configuration to your user-level MCP settings (`~/.config/claude/mcp-settings.json` on Linux/macOS or `%APPDATA%\claude\mcp-settings.json` on Windows).
+
+#### Manual Configuration
+
+Alternatively, manually add this to your MCP settings configuration file (`.claude/mcp-settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "aws-pr-reviewer": {
+      "command": "npx",
+      "args": ["-y", "@tejasanik/aws-pr-reviewer"],
+      "env": {
+        "AWS_PROFILE": "your-profile-name",
+        "AWS_REGION": "us-east-1"
+      }
+    }
+  }
+}
+```
+
+**Note:** The configuration uses npx to run the package directly from npm without requiring local installation.
+
 ## Available Tools
 
 ### Repository Management Tools
