@@ -1,9 +1,12 @@
 {
-  "name": "aws-pr-reviewer",
+  "name": "@tejasanik/aws-pr-reviewer",
   "version": "1.1.0",
+  "description": "A Model Context Protocol (MCP) server for AWS code commit PR management",
+  "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
-    "aws-pr-reviewer": "dist/index.js"
+    "aws-pr-reviewer": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -11,8 +14,9 @@
     "dev": "nodemon --exec tsx src/index.ts",
     "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "test-lines": "tsx src/test/test-line-positions.ts",
-    "build-and-start": "npm run build && npm start"
+    "build-and-start": "npm run build && npm start",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
@@ -22,9 +26,8 @@
     "code-review",
     "ai"
   ],
-  "author": "Your Name",
+  "author": "Teja",
   "license": "MIT",
-  "description": "MCP server for AWS CodeCommit pull request review and repository management",
   "devDependencies": {
     "@types/node": "^24.2.1",
     "nodemon": "^3.1.10",
@@ -39,5 +42,19 @@
     "@types/treeify": "^1.0.3",
     "diff": "^8.0.2",
     "treeify": "^1.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Teja-sudo/aws-code-commit-pr-mcp.git"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
