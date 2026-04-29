@@ -15,6 +15,7 @@ import {
 import { AWSAuthManager } from "./auth/aws-auth.js";
 import { RepositoryService } from "./services/repository-service.js";
 import { PullRequestService } from "./services/pull-request-service.js";
+import { CodeCommitOpDispatcher } from "./services/codecommit-op-dispatcher.js";
 import { MCPConfig } from "./types/index.js";
 import { handleAWSError, MCPValidationError, retryWithBackoff } from "./utils/error-handler.js";
 import { createPaginationOptions } from "./utils/pagination.js";
@@ -36,6 +37,7 @@ class AWSPRReviewerServer {
   private repositoryService: RepositoryService;
   private pullRequestService: PullRequestService;
   private diffAnalyzer: IntelligentDiffAnalyzer;
+  private opDispatcher: CodeCommitOpDispatcher;
 
   constructor() {
     this.server = new Server(
@@ -62,6 +64,7 @@ class AWSPRReviewerServer {
     this.repositoryService = new RepositoryService(this.authManager);
     this.pullRequestService = new PullRequestService(this.authManager);
     this.diffAnalyzer = new IntelligentDiffAnalyzer(this.repositoryService);
+    this.opDispatcher = new CodeCommitOpDispatcher(this.authManager);
 
     this.setupToolHandlers();
   }
@@ -1130,6 +1133,45 @@ class AWSPRReviewerServer {
             inputSchema: {
               type: "object",
               properties: {},
+            },
+          },
+
+          // Generic CodeCommit Operation Dispatcher
+          {
+            name: "codecommit_op_list",
+            description:
+              "Lists every CodeCommit operation available via codecommit_op, with mode (read/write) and a one-line description. CALL THIS FIRST if you don't know the exact operation name or its input schema. Optionally filter by mode.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                mode: {
+                  type: "string",
+                  enum: ["read", "write"],
+                  description:
+                    "Optional: 'read' for read-only ops, 'write' for non-destructive mutating ops. Merges are always excluded from both modes.",
+                },
+              },
+            },
+          },
+          {
+            name: "codecommit_op",
+            description:
+              "Escape-hatch dispatcher for CodeCommit operations not exposed as a dedicated tool. SCOPED: only the CodeCommit service, only the allowlist returned by codecommit_op_list. Merge operations are structurally excluded - use pr_merge if a real merge is intended. Same credentials and permissions as every other tool here. Returns the raw AWS response as JSON. If you don't know the exact command name or its required input fields, call codecommit_op_list first.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                command: {
+                  type: "string",
+                  description:
+                    "Kebab-case operation name from the allowlist (e.g., 'describe-pull-request-events').",
+                },
+                input: {
+                  type: "object",
+                  description:
+                    "Operation input - same field names AWS CodeCommit's API expects (e.g., { pullRequestId: '123' }).",
+                },
+              },
+              required: ["command"],
             },
           },
         ] as Tool[],
@@ -2248,6 +2290,44 @@ class AWSPRReviewerServer {
             };
           }
 
+          case "codecommit_op_list": {
+            const mode = args.mode;
+            if (mode !== undefined && mode !== "read" && mode !== "write") {
+              throw new MCPValidationError("mode must be 'read' or 'write' if provided");
+            }
+            const ops = this.opDispatcher.list(mode as "read" | "write" | undefined);
+            return {
+              content: [
+                { type: "text", text: JSON.stringify(ops, null, 2) },
+              ],
+            };
+          }
+
+          case "codecommit_op":
+            return await retryWithBackoff(async () => {
+              const command = args.command;
+              if (typeof command !== "string" || !command) {
+                throw new MCPValidationError("command is required and must be a non-empty string");
+              }
+              const rawInput = args.input;
+              if (
+                rawInput !== undefined &&
+                rawInput !== null &&
+                (typeof rawInput !== "object" || Array.isArray(rawInput))
+              ) {
+                throw new MCPValidationError("input must be an object");
+              }
+              const input = (rawInput as Record<string, unknown>) ?? {};
+              const result = await this.opDispatcher.run(command, input);
+              // Strip the SDK's $metadata noise to keep responses focused.
+              const { $metadata: _meta, ...rest } = (result as any) ?? {};
+              return {
+                content: [
+                  { type: "text", text: JSON.stringify(rest, null, 2) },
+                ],
+              };
+            });
+
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -2352,6 +2432,7 @@ class AWSPRReviewerServer {
     this.repositoryService = new RepositoryService(this.authManager);
     this.pullRequestService = new PullRequestService(this.authManager);
     this.diffAnalyzer = new IntelligentDiffAnalyzer(this.repositoryService);
+    this.opDispatcher = new CodeCommitOpDispatcher(this.authManager);
 
     console.error("All services reinitialized successfully");
   }
