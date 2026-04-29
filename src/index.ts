@@ -2076,8 +2076,8 @@ class AWSPRReviewerServer {
           }
 
           case "aws_creds_status": {
-            const credentials = this.authManager.getCredentials();
-            const isValid = this.authManager.isCredentialsValid();
+            const credentials = await this.authManager.getCredentials();
+            const isValid = await this.authManager.isCredentialsValid();
             const status = {
               hasCredentials: !!credentials,
               isValid,
