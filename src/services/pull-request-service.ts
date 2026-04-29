@@ -22,6 +22,8 @@ import {
 import { AWSAuthManager } from "../auth/aws-auth.js";
 import { RepositoryService } from "./repository-service.js";
 import { LinePositionCalculator } from "../utils/line-position-calculator.js";
+import { matchString } from "../utils/matching.js";
+import { MCPValidationError } from "../utils/error-handler.js";
 import {
   PullRequest,
   PullRequestComment,
@@ -29,7 +31,30 @@ import {
   PaginatedResult,
   PaginationOptions,
   ApprovalState,
+  PullRequestFilters,
+  PullRequestSearchOptions,
+  PullRequestSearchResult,
 } from "../types/index.js";
+
+// Strict ISO 8601: yyyy-mm-dd, optionally with Thh:mm:ss(.fraction)?(Z|+hh:mm|-hh:mm)?
+const ISO_8601 = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+\-]\d{2}:?\d{2})?)?$/;
+
+function parseIsoDate(value: string | undefined, fieldName: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw new MCPValidationError(`${fieldName} must be a string`);
+  }
+  if (!ISO_8601.test(value)) {
+    throw new MCPValidationError(
+      `${fieldName} must be ISO 8601 (e.g., 2026-01-15 or 2026-01-15T00:00:00Z)`
+    );
+  }
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms)) {
+    throw new MCPValidationError(`${fieldName} could not be parsed as a date`);
+  }
+  return ms;
+}
 
 export class PullRequestService {
   private repositoryService: RepositoryService;
@@ -110,6 +135,151 @@ export class PullRequestService {
         lastModifiedUser: rule.lastModifiedUser,
       })),
     };
+  }
+
+  /**
+   * Multi-field PR search. Server-side filters: status, authorArn (exact ARN).
+   * Everything else is filtered client-side after fetching each PR. Bounded by
+   * maxScanned (default 500) so large repos can't run unbounded.
+   */
+  async searchPullRequests(
+    repositoryName: string,
+    filters: PullRequestFilters,
+    options: PullRequestSearchOptions = {}
+  ): Promise<PullRequestSearchResult> {
+    if (!repositoryName || typeof repositoryName !== "string") {
+      throw new MCPValidationError("repositoryName is required");
+    }
+    if (filters.status !== undefined && filters.status !== "OPEN" && filters.status !== "CLOSED") {
+      throw new MCPValidationError("filters.status must be 'OPEN' or 'CLOSED'");
+    }
+    if (
+      filters.authorArnContains !== undefined &&
+      typeof filters.authorArnContains !== "string"
+    ) {
+      throw new MCPValidationError("filters.authorArnContains must be a string");
+    }
+    if (options.maxResults !== undefined) {
+      if (!Number.isInteger(options.maxResults) || options.maxResults < 1) {
+        throw new MCPValidationError("maxResults must be a positive integer");
+      }
+    }
+    if (options.maxScanned !== undefined) {
+      if (!Number.isInteger(options.maxScanned) || options.maxScanned < 1) {
+        throw new MCPValidationError("maxScanned must be a positive integer");
+      }
+    }
+
+    const maxResults = options.maxResults ?? 25;
+    const maxScanned = options.maxScanned ?? 500;
+    const concurrency = 5;
+
+    const dateBounds = {
+      createdAfter: parseIsoDate(filters.createdAfter, "createdAfter"),
+      createdBefore: parseIsoDate(filters.createdBefore, "createdBefore"),
+      lastActivityAfter: parseIsoDate(filters.lastActivityAfter, "lastActivityAfter"),
+      lastActivityBefore: parseIsoDate(filters.lastActivityBefore, "lastActivityBefore"),
+    };
+
+    const matches: PullRequest[] = [];
+    let scanned = 0;
+    let nextToken: string | undefined;
+    const client = await this.authManager.getClient();
+
+    outer: while (scanned < maxScanned && matches.length < maxResults) {
+      const listResp = await client.send(
+        new ListPullRequestsCommand({
+          repositoryName,
+          pullRequestStatus: filters.status,
+          // Coerce empty string to undefined so AWS doesn't reject it.
+          authorArn: filters.authorArn || undefined,
+          nextToken,
+          maxResults: 100,
+        })
+      );
+      const ids = listResp.pullRequestIds ?? [];
+      if (ids.length === 0 && !listResp.nextToken) break;
+
+      for (let i = 0; i < ids.length; i += concurrency) {
+        if (scanned >= maxScanned || matches.length >= maxResults) break outer;
+        const batch = ids.slice(i, i + concurrency);
+        const prs = await Promise.all(batch.map((id) => this.getPullRequest(id)));
+        scanned += prs.length;
+
+        for (const pr of prs) {
+          if (this.matchesFilters(pr, filters, dateBounds)) {
+            matches.push(pr);
+            if (matches.length >= maxResults) break;
+          }
+        }
+      }
+
+      // Stop if AWS exhausted the list or echoed the same token (defensive).
+      const newToken = listResp.nextToken;
+      if (!newToken || newToken === nextToken) break;
+      nextToken = newToken;
+    }
+
+    return {
+      matches,
+      scanned,
+      truncated: scanned >= maxScanned && matches.length < maxResults,
+    };
+  }
+
+  private matchesFilters(
+    pr: PullRequest,
+    filters: PullRequestFilters,
+    dates: {
+      createdAfter?: number;
+      createdBefore?: number;
+      lastActivityAfter?: number;
+      lastActivityBefore?: number;
+    }
+  ): boolean {
+    if (
+      filters.authorArnContains &&
+      !pr.authorArn.toLowerCase().includes(filters.authorArnContains.toLowerCase())
+    ) {
+      return false;
+    }
+    if (filters.title && !matchString(pr.title, filters.title)) return false;
+    if (filters.description && !matchString(pr.description, filters.description)) return false;
+
+    const target = pr.targets[0];
+    if (filters.sourceBranch && !matchString(target?.sourceReference, filters.sourceBranch)) {
+      return false;
+    }
+    if (
+      filters.destinationBranch &&
+      !matchString(target?.destinationReference, filters.destinationBranch)
+    ) {
+      return false;
+    }
+
+    const created = pr.creationDate?.getTime();
+    if (dates.createdAfter !== undefined && (created === undefined || created < dates.createdAfter)) {
+      return false;
+    }
+    if (dates.createdBefore !== undefined && (created === undefined || created > dates.createdBefore)) {
+      return false;
+    }
+
+    const activity = pr.lastActivityDate?.getTime();
+    if (
+      dates.lastActivityAfter !== undefined &&
+      (activity === undefined || activity < dates.lastActivityAfter)
+    ) {
+      return false;
+    }
+    if (
+      dates.lastActivityBefore !== undefined &&
+      (activity === undefined || activity > dates.lastActivityBefore)
+    ) {
+      return false;
+    }
+
+    return true;
   }
 
   async createPullRequest(

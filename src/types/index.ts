@@ -151,3 +151,36 @@ export interface PaginatedResult<T> {
   items: T[];
   nextToken?: string;
 }
+
+export type MatchMode = "exact" | "substring" | "regex";
+
+export interface MatchSpec {
+  value: string;
+  mode?: MatchMode; // default "substring"
+  caseSensitive?: boolean; // default false; ignored for "regex" (use inline /flags/)
+}
+
+export interface PullRequestFilters {
+  status?: "OPEN" | "CLOSED";
+  authorArn?: string; // exact ARN — server-side filter
+  authorArnContains?: string; // substring of ARN — client-side
+  title?: MatchSpec;
+  description?: MatchSpec;
+  sourceBranch?: MatchSpec;
+  destinationBranch?: MatchSpec;
+  createdAfter?: string; // ISO 8601
+  createdBefore?: string; // ISO 8601
+  lastActivityAfter?: string; // ISO 8601
+  lastActivityBefore?: string; // ISO 8601
+}
+
+export interface PullRequestSearchOptions {
+  maxResults?: number; // matches collected, default 25
+  maxScanned?: number; // PRs fetched before stopping, default 500
+}
+
+export interface PullRequestSearchResult {
+  matches: PullRequest[];
+  scanned: number;
+  truncated: boolean; // true if maxScanned hit before exhausting AWS pagination
+}

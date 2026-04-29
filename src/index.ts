@@ -652,6 +652,108 @@ class AWSPRReviewerServer {
               required: ["pullRequestId"],
             },
           },
+          {
+            name: "prs_search",
+            description:
+              "Search PRs across a repository with rich filters. Server-side filters: status, authorArn (exact ARN). Client-side: title, description, sourceBranch, destinationBranch, authorArnContains (substring), date ranges. Each string filter takes a MatchSpec with mode (exact / substring / regex; default substring) and optional caseSensitive flag. Use when prs_list is too coarse - e.g., 'find open PRs whose title contains auth' or 'PRs by jane@ from the past month'. Performance: scans up to 500 PRs by default (raise maxScanned for larger repos at the cost of more API calls). Stops once maxResults matches are collected.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                repositoryName: {
+                  type: "string",
+                  description: "Repository to search.",
+                },
+                filters: {
+                  type: "object",
+                  description: "Filter criteria. All provided filters must match (AND).",
+                  additionalProperties: false,
+                  properties: {
+                    status: {
+                      type: "string",
+                      enum: ["OPEN", "CLOSED"],
+                      description: "Server-side filter on PR status.",
+                    },
+                    authorArn: {
+                      type: "string",
+                      description:
+                        "Exact author IAM ARN - server-side filter, fastest. Use authorArnContains for substring match.",
+                    },
+                    authorArnContains: {
+                      type: "string",
+                      description: "Case-insensitive substring of author ARN - client-side.",
+                    },
+                    title: {
+                      type: "object",
+                      description:
+                        "Match against PR title. { value, mode?: exact|substring|regex (default substring), caseSensitive?: bool (default false) }.",
+                      properties: {
+                        value: { type: "string" },
+                        mode: { type: "string", enum: ["exact", "substring", "regex"] },
+                        caseSensitive: { type: "boolean" },
+                      },
+                      required: ["value"],
+                    },
+                    description: {
+                      type: "object",
+                      description: "Match against PR description. Same MatchSpec shape as title.",
+                      properties: {
+                        value: { type: "string" },
+                        mode: { type: "string", enum: ["exact", "substring", "regex"] },
+                        caseSensitive: { type: "boolean" },
+                      },
+                      required: ["value"],
+                    },
+                    sourceBranch: {
+                      type: "object",
+                      description: "Match against source branch name. Same MatchSpec shape.",
+                      properties: {
+                        value: { type: "string" },
+                        mode: { type: "string", enum: ["exact", "substring", "regex"] },
+                        caseSensitive: { type: "boolean" },
+                      },
+                      required: ["value"],
+                    },
+                    destinationBranch: {
+                      type: "object",
+                      description: "Match against destination branch name. Same MatchSpec shape.",
+                      properties: {
+                        value: { type: "string" },
+                        mode: { type: "string", enum: ["exact", "substring", "regex"] },
+                        caseSensitive: { type: "boolean" },
+                      },
+                      required: ["value"],
+                    },
+                    createdAfter: {
+                      type: "string",
+                      description: "ISO 8601 timestamp - PRs created on or after this time.",
+                    },
+                    createdBefore: {
+                      type: "string",
+                      description: "ISO 8601 timestamp - PRs created on or before this time.",
+                    },
+                    lastActivityAfter: {
+                      type: "string",
+                      description: "ISO 8601 timestamp - PRs with last activity on or after.",
+                    },
+                    lastActivityBefore: {
+                      type: "string",
+                      description: "ISO 8601 timestamp - PRs with last activity on or before.",
+                    },
+                  },
+                },
+                maxResults: {
+                  type: "number",
+                  description: "Maximum matches to return. Default 25.",
+                },
+                maxScanned: {
+                  type: "number",
+                  description:
+                    "Maximum PRs to fetch before stopping (cost cap). Default 500.",
+                },
+              },
+              required: ["repositoryName"],
+            },
+          },
 
           // Comment and Review Tools
           {
@@ -1838,6 +1940,40 @@ class AWSPRReviewerServer {
             return await retryWithBackoff(async () => {
               const result = await this.pullRequestService.reopenPullRequest(
                 args.pullRequestId as string
+              );
+              return {
+                content: [
+                  { type: "text", text: JSON.stringify(result, null, 2) },
+                ],
+              };
+            });
+
+          case "prs_search":
+            return await retryWithBackoff(async () => {
+              const repositoryName = args.repositoryName;
+              if (typeof repositoryName !== "string" || !repositoryName) {
+                throw new MCPValidationError("repositoryName is required");
+              }
+              const rawFilters = args.filters;
+              if (
+                rawFilters !== undefined &&
+                (typeof rawFilters !== "object" ||
+                  rawFilters === null ||
+                  Array.isArray(rawFilters))
+              ) {
+                throw new MCPValidationError("filters must be an object");
+              }
+              const filters = (rawFilters as any) ?? {};
+
+              const result = await this.pullRequestService.searchPullRequests(
+                repositoryName,
+                filters,
+                {
+                  maxResults:
+                    typeof args.maxResults === "number" ? args.maxResults : undefined,
+                  maxScanned:
+                    typeof args.maxScanned === "number" ? args.maxScanned : undefined,
+                }
               );
               return {
                 content: [
