@@ -29,22 +29,21 @@
   "author": "Teja",
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^24.2.1",
-    "nodemon": "^3.1.10",
-    "tsx": "^4.20.3",
-    "typescript": "^5.9.2"
+    "@types/node": "^25.6.0",
+    "@types/treeify": "^1.0.3",
+    "nodemon": "^3.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@aws-sdk/client-codecommit": "^3.864.0",
-    "@aws-sdk/credential-providers": "^3.864.0",
-    "@modelcontextprotocol/sdk": "^1.17.2",
-    "@types/diff": "^7.0.2",
-    "@types/treeify": "^1.0.3",
-    "diff": "^8.0.2",
+    "@aws-sdk/client-codecommit": "^3.1038.0",
+    "@aws-sdk/credential-providers": "^3.1038.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "diff": "^9.0.0",
     "treeify": "^1.1.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "files": [
     "dist",
