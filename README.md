@@ -389,6 +389,27 @@ Close or reopen a pull request.
 }
 ```
 
+#### `prs_search`
+Multi-field PR search across a repository. Server-side filters: `status`, `authorArn` (exact ARN). Client-side: `title`, `description`, `sourceBranch`, `destinationBranch`, `authorArnContains` (substring), creation/last-activity date ranges.
+
+Each string filter takes a `MatchSpec`: `{ value, mode?: "exact" | "substring" | "regex", caseSensitive?: bool }`. Default mode is `substring`, default `caseSensitive` is `false`. Regex patterns are capped at 200 chars to bound ReDoS risk.
+
+```json
+{
+  "repositoryName": "my-repo",
+  "filters": {
+    "status": "OPEN",
+    "title": { "value": "auth", "mode": "substring" },
+    "sourceBranch": { "value": "feature/", "mode": "substring" },
+    "createdAfter": "2026-01-01T00:00:00Z"
+  },
+  "maxResults": 25,
+  "maxScanned": 500
+}
+```
+
+Response: `{ matches: PullRequest[], scanned: number, truncated: boolean }`. `truncated: true` means we hit `maxScanned` before finding `maxResults` matches — raise `maxScanned` if you need to look further.
+
 ### Comment and Review Tools
 
 #### `comments_get`
@@ -508,6 +529,27 @@ Merge a pull request.
   "email": "john@example.com"
 }
 ```
+
+### Generic CodeCommit Operations
+
+For CodeCommit operations not covered by a dedicated tool, the server exposes a scoped dispatcher backed by the AWS SDK (no host CLI install required). The allowlist excludes **all merge operations** and anything outside CodeCommit, so the dispatcher cannot be used to perform a merge or to touch any other AWS service.
+
+#### `codecommit_op_list`
+Discover what's available. Lists every operation the dispatcher accepts, with mode (read / write) and a one-line description. Optional `mode` filter.
+```json
+{ "mode": "read" }
+```
+
+#### `codecommit_op`
+Invoke a CodeCommit API operation by its kebab-case name. Returns the raw AWS response (with `$metadata` stripped).
+```json
+{
+  "command": "describe-pull-request-events",
+  "input": { "pullRequestId": "123" }
+}
+```
+
+Use `codecommit_op_list` first if you don't know the exact command name or its required input fields.
 
 ### AWS Credential Management Tools
 
