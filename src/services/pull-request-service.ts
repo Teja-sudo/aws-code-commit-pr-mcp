@@ -29,7 +29,7 @@ import {
   PaginatedResult,
   PaginationOptions,
   ApprovalState,
-} from "../types";
+} from "../types/index.js";
 
 export class PullRequestService {
   private repositoryService: RepositoryService;
@@ -407,10 +407,6 @@ export class PullRequestService {
   }
 
   async replyToComment(
-    _pullRequestId: string,
-    _repositoryName: string,
-    _beforeCommitId: string,
-    _afterCommitId: string,
     inReplyTo: string,
     content: string,
     clientRequestToken?: string

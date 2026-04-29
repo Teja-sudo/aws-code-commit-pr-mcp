@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -12,9 +16,19 @@ import { AWSAuthManager } from "./auth/aws-auth.js";
 import { RepositoryService } from "./services/repository-service.js";
 import { PullRequestService } from "./services/pull-request-service.js";
 import { MCPConfig } from "./types/index.js";
-import { handleAWSError, retryWithBackoff } from "./utils/error-handler.js";
+import { handleAWSError, MCPValidationError, retryWithBackoff } from "./utils/error-handler.js";
 import { createPaginationOptions } from "./utils/pagination.js";
 import { IntelligentDiffAnalyzer } from "./utils/intelligent-diff-analyzer.js";
+
+function readPackageVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
 
 class AWSPRReviewerServer {
   private server: Server;
@@ -27,7 +41,7 @@ class AWSPRReviewerServer {
     this.server = new Server(
       {
         name: "aws-pr-reviewer",
-        version: "1.0.0",
+        version: readPackageVersion(),
       },
       {
         capabilities: {
@@ -773,50 +787,25 @@ class AWSPRReviewerServer {
           {
             name: "comment_reply",
             description:
-              "Replies to an existing comment, creating a threaded conversation. Use when: 1) Responding to questions, 2) Continuing discussion, 3) Addressing feedback, 4) Clarifying points. Maintains comment thread context for organized discussions.",
+              "Replies to an existing comment, creating a threaded conversation. Use when: 1) Responding to questions, 2) Continuing discussion, 3) Addressing feedback, 4) Clarifying points. AWS scopes the reply to the parent comment automatically — only the parent comment ID and reply content are required.",
             inputSchema: {
               type: "object",
               properties: {
-                pullRequestId: {
-                  type: "string",
-                  description: "PR containing the original comment",
-                },
-                repositoryName: {
-                  type: "string",
-                  description: "Repository containing the PR",
-                },
-                beforeCommitId: {
-                  type: "string",
-                  description:
-                    "Before commit ID from PR details. Use mergeBase from PR targets.",
-                },
-                afterCommitId: {
-                  type: "string",
-                  description:
-                    "After commit ID from PR details. Use sourceCommit from PR targets.",
-                },
                 inReplyTo: {
                   type: "string",
                   description:
-                    "Comment ID you're replying to (from comments_get)",
+                    "Comment ID you're replying to (from comments_get).",
                 },
                 content: {
                   type: "string",
-                  description: "Reply content addressing the original comment",
+                  description: "Reply content addressing the original comment.",
                 },
                 clientRequestToken: {
                   type: "string",
-                  description: "Optional: Unique token for reply",
+                  description: "Optional: unique token to prevent duplicate replies.",
                 },
               },
-              required: [
-                "pullRequestId",
-                "repositoryName",
-                "beforeCommitId",
-                "afterCommitId",
-                "inReplyTo",
-                "content",
-              ],
+              required: ["inReplyTo", "content"],
             },
           },
 
@@ -1001,7 +990,7 @@ class AWSPRReviewerServer {
           {
             name: "aws_creds_refresh",
             description:
-              "Manually refreshes AWS credentials (normally auto-refreshed every 7.5 hours). Use when: 1) Credentials expired, 2) Getting authentication errors, 3) Switched AWS configuration, 4) Testing credential validity. Reloads from configured source (profile/environment).",
+              "Manually rebuilds the AWS credential provider and CodeCommit client (the SDK auto-refreshes rotating credentials between calls). Use when: 1) credentials/source were updated externally, 2) you're seeing authentication errors, 3) you switched AWS configuration outside this server, 4) verifying credential validity.",
             inputSchema: {
               type: "object",
               properties: {},
@@ -1046,11 +1035,8 @@ class AWSPRReviewerServer {
     });
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-
-      if (!args) {
-        throw new Error("No arguments provided");
-      }
+      const { name } = request.params;
+      const args: Record<string, unknown> = request.params.arguments ?? {};
 
       try {
         switch (name) {
@@ -1429,9 +1415,11 @@ class AWSPRReviewerServer {
           case "code_search":
             return await retryWithBackoff(async () => {
               const mode = args.mode as "search" | "tree";
+              if (mode !== "search" && mode !== "tree") {
+                throw new MCPValidationError("mode must be 'search' or 'tree'");
+              }
 
               if (mode === "tree") {
-                // Tree mode - list repository structure
                 const result = await this.repositoryService.getRepositoryTree(
                   args.repositoryName as string,
                   args.commitSpecifier as string,
@@ -1444,39 +1432,51 @@ class AWSPRReviewerServer {
                     { type: "text", text: JSON.stringify(result, null, 2) },
                   ],
                 };
-              } else {
-                // Search mode - find code patterns in specific file
-                const filePath = args.filePath as string;
-                const searchPatterns = args.searchPatterns as any[];
+              }
 
-                if (!filePath) {
-                  throw new Error("File path is required for search mode");
-                }
+              // Search mode
+              const filePath = args.filePath as string;
+              const searchPatterns = args.searchPatterns as any[];
 
-                if (!searchPatterns || searchPatterns.length === 0) {
-                  throw new Error(
-                    "Search patterns are required for search mode"
+              if (!filePath) {
+                throw new MCPValidationError("File path is required for search mode");
+              }
+              if (!Array.isArray(searchPatterns) || searchPatterns.length === 0) {
+                throw new MCPValidationError("Search patterns are required for search mode");
+              }
+
+              // Defend against ReDoS / oversized patterns from untrusted MCP clients.
+              const MAX_PATTERN_LEN = 200;
+              for (const p of searchPatterns) {
+                if (typeof p?.pattern !== "string") {
+                  throw new MCPValidationError(
+                    "Each search pattern must include a 'pattern' string"
                   );
                 }
-
-                const result = await this.repositoryService.searchInFile(
-                  args.repositoryName as string,
-                  args.commitSpecifier as string,
-                  filePath,
-                  searchPatterns,
-                  {
-                    maxResults: (args.maxResults as number) || 50,
-                    includeContext: (args.includeContext as boolean) ?? true,
-                    contextLines: (args.contextLines as number) || 3,
-                  }
-                );
-
-                return {
-                  content: [
-                    { type: "text", text: JSON.stringify(result, null, 2) },
-                  ],
-                };
+                if (p.pattern.length > MAX_PATTERN_LEN) {
+                  throw new MCPValidationError(
+                    `Search pattern exceeds ${MAX_PATTERN_LEN} chars; refine it`
+                  );
+                }
               }
+
+              const result = await this.repositoryService.searchInFile(
+                args.repositoryName as string,
+                args.commitSpecifier as string,
+                filePath,
+                searchPatterns,
+                {
+                  maxResults: (args.maxResults as number) || 50,
+                  includeContext: (args.includeContext as boolean) ?? true,
+                  contextLines: (args.contextLines as number) || 3,
+                }
+              );
+
+              return {
+                content: [
+                  { type: "text", text: JSON.stringify(result, null, 2) },
+                ],
+              };
             });
 
           case "commit_get":
@@ -1615,6 +1615,10 @@ class AWSPRReviewerServer {
           case "batch_diff_analyze":
             return await retryWithBackoff(async () => {
               const fileDifferences = args.fileDifferences as any[];
+
+              if (!Array.isArray(fileDifferences)) {
+                throw new MCPValidationError("fileDifferences must be an array");
+              }
 
               // Enforce 3-5 file limit
               if (fileDifferences.length > 5) {
@@ -1865,15 +1869,33 @@ class AWSPRReviewerServer {
 
           case "comment_post":
             return await retryWithBackoff(async () => {
-              const location = args.filePath
-                ? {
-                    filePath: args.filePath as string,
-                    filePosition: args.filePosition as number,
-                    relativeFileVersion: args.relativeFileVersion as
-                      | "BEFORE"
-                      | "AFTER",
+              let location:
+                | {
+                    filePath: string;
+                    filePosition?: number;
+                    relativeFileVersion: "BEFORE" | "AFTER";
                   }
-                : undefined;
+                | undefined;
+              if (args.filePath !== undefined) {
+                if (typeof args.filePosition !== "number") {
+                  throw new MCPValidationError(
+                    "filePosition (number) is required when filePath is provided"
+                  );
+                }
+                if (
+                  args.relativeFileVersion !== "BEFORE" &&
+                  args.relativeFileVersion !== "AFTER"
+                ) {
+                  throw new MCPValidationError(
+                    "relativeFileVersion must be 'BEFORE' or 'AFTER' when filePath is provided"
+                  );
+                }
+                location = {
+                  filePath: args.filePath as string,
+                  filePosition: args.filePosition,
+                  relativeFileVersion: args.relativeFileVersion,
+                };
+              }
 
               const result = await this.pullRequestService.postComment(
                 args.pullRequestId as string,
@@ -1919,10 +1941,6 @@ class AWSPRReviewerServer {
           case "comment_reply":
             return await retryWithBackoff(async () => {
               const result = await this.pullRequestService.replyToComment(
-                args.pullRequestId as string,
-                args.repositoryName as string,
-                args.beforeCommitId as string,
-                args.afterCommitId as string,
                 args.inReplyTo as string,
                 args.content as string,
                 args.clientRequestToken as string
@@ -2078,15 +2096,14 @@ class AWSPRReviewerServer {
           case "aws_creds_status": {
             const credentials = await this.authManager.getCredentials();
             const isValid = await this.authManager.isCredentialsValid();
+            const accessKeyId = credentials?.accessKeyId
+              ? `${credentials.accessKeyId.slice(0, 8)}...${credentials.accessKeyId.slice(-6)}`
+              : "Not set";
             const status = {
               hasCredentials: !!credentials,
               isValid,
-              accessKeyId:
-                credentials?.accessKeyId?.slice(0, 8) +
-                  "..." +
-                  credentials?.accessKeyId?.slice(-6) || "Not set",
-              expiration:
-                credentials?.expiration?.toISOString() || "No expiration",
+              accessKeyId,
+              expiration: credentials?.expiration?.toISOString() || "No expiration",
             };
             return {
               content: [
@@ -2139,7 +2156,6 @@ class AWSPRReviewerServer {
     let currentHunk: string[] = [];
     let inHunk = false;
 
-    // Separate header and hunks
     for (const line of lines) {
       if (line.startsWith("@@")) {
         if (inHunk && currentHunk.length > 0) {
@@ -2154,16 +2170,25 @@ class AWSPRReviewerServer {
       }
     }
 
-    // Add the last hunk
     if (inHunk && currentHunk.length > 0) {
       hunks.push(currentHunk);
     }
 
     const totalHunks = hunks.length;
-    const startIndex = Math.max(0, chunkOffset - 1); // Convert to 0-based
+
+    // No hunks: binary file, deletion, or empty diff. Return the header as-is
+    // so callers can still see metadata, but flag the no-hunks state explicitly.
+    if (totalHunks === 0) {
+      return {
+        chunk: headerLines.join("\n"),
+        totalHunks: 0,
+        hasMore: false,
+      };
+    }
+
+    const startIndex = Math.max(0, chunkOffset - 1);
     const endIndex = Math.min(totalHunks, startIndex + chunkLimit);
 
-    // Build chunked response
     const chunkLines = [...headerLines];
     for (let i = startIndex; i < endIndex; i++) {
       chunkLines.push(...hunks[i]);
@@ -2200,19 +2225,23 @@ class AWSPRReviewerServer {
   }
 }
 
-// Handle graceful shutdown
-const server = new AWSPRReviewerServer();
-process.on("SIGINT", async () => {
-  console.error("Received SIGINT, shutting down gracefully...");
-  await server.shutdown();
-  process.exit(0);
-});
+// Start the server, then wire up shutdown only after init succeeds so a signal
+// arriving mid-init doesn't tear down half-initialized state.
+async function main() {
+  const server = new AWSPRReviewerServer();
+  await server.run();
 
-process.on("SIGTERM", async () => {
-  console.error("Received SIGTERM, shutting down gracefully...");
-  await server.shutdown();
-  process.exit(0);
-});
+  const shutdown = async (signal: string) => {
+    console.error(`Received ${signal}, shutting down gracefully...`);
+    await server.shutdown();
+    process.exit(0);
+  };
 
-// Start the server
-server.run();
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+}
+
+main().catch((error) => {
+  console.error("Fatal error in main:", error);
+  process.exit(1);
+});

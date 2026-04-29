@@ -22,17 +22,12 @@ export class RepositoryService {
     });
 
     const response = await client.send(command);
-    
+
+    // AWS ListRepositories only returns name+id. Don't fabricate undefined values for
+    // the richer metadata fields — callers wanting those should use repo_get.
     const repositories: Repository[] = (response.repositories || []).map(repo => ({
       repositoryName: repo.repositoryName || '',
       repositoryId: repo.repositoryId || '',
-      repositoryDescription: undefined,
-      defaultBranch: undefined,
-      lastModifiedDate: undefined,
-      creationDate: undefined,
-      cloneUrlHttp: undefined,
-      cloneUrlSsh: undefined,
-      arn: undefined,
     }));
 
     return {
@@ -240,17 +235,37 @@ export class RepositoryService {
     return files;
   }
 
-  async searchRepositories(searchTerm: string, options: PaginationOptions = {}): Promise<PaginatedResult<Repository>> {
-    const allRepos = await this.listRepositories(options);
-    
-    const filteredRepos = allRepos.items.filter(repo => 
-      repo.repositoryName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (repo.repositoryDescription && repo.repositoryDescription.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+  async searchRepositories(
+    searchTerm: string,
+    options: PaginationOptions = {}
+  ): Promise<PaginatedResult<Repository>> {
+    // AWS ListRepositories has no server-side filter, so we paginate fully and
+    // filter client-side. We cap iterations to avoid unbounded scans on huge accounts.
+    const MAX_PAGES = 20;
+    const term = searchTerm.toLowerCase();
+
+    const matches: Repository[] = [];
+    let nextToken = options.nextToken;
+    let pages = 0;
+
+    do {
+      const page = await this.listRepositories({ nextToken });
+      for (const repo of page.items) {
+        if (
+          repo.repositoryName.toLowerCase().includes(term) ||
+          (repo.repositoryDescription &&
+            repo.repositoryDescription.toLowerCase().includes(term))
+        ) {
+          matches.push(repo);
+        }
+      }
+      nextToken = page.nextToken;
+      pages++;
+    } while (nextToken && pages < MAX_PAGES);
 
     return {
-      items: filteredRepos,
-      nextToken: allRepos.nextToken,
+      items: matches,
+      nextToken,
     };
   }
 
@@ -371,12 +386,14 @@ export class RepositoryService {
     }
     
     try {
+      // AWS expects "" for the repo root, not "/". The caller normalizes "/" to "" earlier;
+      // here we just pass the path through verbatim and never substitute "/".
       const command = new GetFolderCommand({
         repositoryName,
         commitSpecifier,
-        folderPath: folderPath || "/",
+        folderPath: folderPath || "",
       });
-      
+
       const response = await client.send(command);
       
       // Add files
@@ -416,7 +433,7 @@ export class RepositoryService {
     let files = 0;
     let folders = 0;
     
-    for (const [_key, value] of Object.entries(tree)) {
+    for (const value of Object.values(tree)) {
       if (value === null) {
         files++;
       } else if (typeof value === 'object') {
