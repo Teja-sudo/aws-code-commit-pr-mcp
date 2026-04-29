@@ -39,12 +39,18 @@ A comprehensive Model Context Protocol (MCP) server for AWS CodeCommit that enab
 - Manage approval workflows
 
 ### AWS Authentication
-- Support for AWS CLI profiles
-- Environment variable credentials
-- Session token support for temporary credentials
-- Automatic credential refresh (7.5-hour intervals)
-- Profile switching without restart
-- Credential validation and status checking
+- Uses the AWS SDK's standard Node.js credential provider chain (`fromNodeProviderChain`):
+  - Environment variables
+  - AWS SSO cached tokens
+  - AWS CLI profiles (`~/.aws/credentials`, `~/.aws/config`)
+  - `credential_process` helpers
+  - **EKS IRSA** (web-identity token files)
+  - **Fargate / ECS task roles** (container metadata endpoint)
+  - **EC2 instance profiles** (IMDS)
+- The SDK transparently rotates short-lived credentials between requests — no manual refresh timer
+- Optional override of any source via static credentials passed to the constructor
+- Profile switching at runtime via the `aws_profile_switch` tool
+- Cross-mount WSL credential discovery (Windows-side `~/.aws/credentials` from WSL)
 
 ### Advanced Features
 - Comprehensive pagination handling for large datasets
@@ -55,8 +61,8 @@ A comprehensive Model Context Protocol (MCP) server for AWS CodeCommit that enab
 ## Installation
 
 ### Prerequisites
-- Node.js 18+ and npm
-- AWS CLI configured with appropriate permissions
+- Node.js 20+ and npm
+- AWS credentials available via any source supported by the AWS SDK Node.js provider chain (CLI profile, env vars, SSO, IAM role on Fargate / ECS / EKS / EC2)
 - Access to AWS CodeCommit repositories
 
 ### Setup
@@ -71,26 +77,34 @@ A comprehensive Model Context Protocol (MCP) server for AWS CodeCommit that enab
    npm run build
    ```
 
-3. **Configure AWS credentials** (choose one method):
-   
-   **Method 1: AWS CLI Profile**
+3. **Configure AWS credentials** — pick any source the AWS SDK already understands:
+
+   **Local: AWS CLI profile**
    ```bash
    aws configure --profile your-profile-name
-   ```
-   
-   **Method 2: Environment variables**
-   ```bash
    export AWS_PROFILE=your-profile-name
    export AWS_REGION=us-east-1
    ```
-   
-   **Method 3: Direct credentials**
+
+   **Local: direct credentials (IAM user keys or short-lived STS)**
    ```bash
    export AWS_ACCESS_KEY_ID=your-access-key
    export AWS_SECRET_ACCESS_KEY=your-secret-key
-   export AWS_SESSION_TOKEN=your-session-token  # if using temporary credentials
+   export AWS_SESSION_TOKEN=your-session-token  # only for STS / SSO
    export AWS_REGION=us-east-1
    ```
+
+   **Local: AWS SSO**
+   ```bash
+   aws sso login --profile your-sso-profile
+   export AWS_PROFILE=your-sso-profile
+   ```
+
+   **Fargate / ECS:** attach a task role with the IAM permissions below — no env vars needed.
+
+   **EKS:** annotate the service account for IRSA — credentials are picked up via the projected web-identity token.
+
+   **EC2:** attach an instance profile — credentials are read from IMDS automatically.
 
 ### WSL (Windows Subsystem for Linux) Support
 
@@ -421,13 +435,9 @@ Delete a comment.
 ```
 
 #### `comment_reply`
-Reply to an existing comment.
+Reply to an existing comment. AWS scopes the reply to the parent comment automatically — no PR / commit IDs needed.
 ```json
 {
-  "pullRequestId": "123",
-  "repositoryName": "my-repo",
-  "beforeCommitId": "abc123...",
-  "afterCommitId": "def456...",
   "inReplyTo": "comment-123",
   "content": "I agree with this comment"
 }
@@ -586,7 +596,7 @@ src/
 
 ### Key Components
 
-- **AWSAuthManager**: Handles AWS credential management, profile switching, and automatic refresh
+- **AWSAuthManager**: Builds the credential provider (default chain or static creds) and hands it to `CodeCommitClient`, so the SDK auto-rotates short-lived credentials between requests. Also handles profile switching and WSL credential discovery.
 - **RepositoryService**: Manages repository operations and code access
 - **PullRequestService**: Handles all PR-related operations including comments and approvals
 - **Error Handling**: Comprehensive AWS-specific error handling with retry logic

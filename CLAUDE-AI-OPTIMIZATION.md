@@ -111,7 +111,7 @@ Each parameter includes:
 - Optimizes batch sizes for different operations
 
 ### Credential Management
-- Auto-refresh every 7.5 hours
+- AWS SDK rotates short-lived credentials automatically between requests
 - Profile switching without restart
 - Status checking for troubleshooting
 
