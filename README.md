@@ -39,18 +39,17 @@ A comprehensive Model Context Protocol (MCP) server for AWS CodeCommit that enab
 - Manage approval workflows
 
 ### AWS Authentication
-- Uses the AWS SDK's standard Node.js credential provider chain (`fromNodeProviderChain`):
-  - Environment variables
-  - AWS SSO cached tokens
-  - AWS CLI profiles (`~/.aws/credentials`, `~/.aws/config`)
-  - `credential_process` helpers
-  - **EKS IRSA** (web-identity token files)
-  - **Fargate / ECS task roles** (container metadata endpoint)
-  - **EC2 instance profiles** (IMDS)
-- The SDK transparently rotates short-lived credentials between requests — no manual refresh timer
-- Optional override of any source via static credentials passed to the constructor
-- Profile switching at runtime via the `aws_profile_switch` tool
-- Cross-mount WSL credential discovery (Windows-side `~/.aws/credentials` from WSL)
+
+Credential source is selected in this order:
+
+1. **Explicit profile** — if `AWS_PROFILE` is set, that profile is used (via `fromIni`). An explicit profile takes precedence over ambient `AWS_ACCESS_KEY_ID` env vars, so a stale env key can't shadow the profile you asked for.
+2. **Static env credentials** — `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (+ optional `AWS_SESSION_TOKEN`) when no profile is set. Note: these are a frozen snapshot; if they are temporary STS credentials they **cannot** be refreshed in-process (use a profile instead).
+3. **Default provider chain** (`fromNodeProviderChain`) — when neither of the above is set. Covers AWS SSO, `credential_process`, **EKS IRSA**, **Fargate / ECS task roles**, and **EC2 instance profiles (IMDS)**. The SDK rotates these short-lived credentials automatically.
+
+Other behavior:
+- `aws_creds_refresh` re-reads a rotated profile from disk (the SDK's shared-config file cache is bypassed on refresh), so updating `~/.aws/credentials` then calling `aws_creds_refresh` picks up the new credentials without restarting the server.
+- Profile switching at runtime via the `aws_profile_switch` tool.
+- Cross-mount WSL credential discovery (Windows-side `~/.aws/credentials` from WSL).
 
 ### Advanced Features
 - Comprehensive pagination handling for large datasets

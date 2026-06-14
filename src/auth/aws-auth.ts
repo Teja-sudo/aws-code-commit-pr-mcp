@@ -1,5 +1,5 @@
 import { CodeCommitClient } from "@aws-sdk/client-codecommit";
-import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
+import { fromNodeProviderChain, fromIni } from "@aws-sdk/credential-providers";
 import type { AwsCredentialIdentity, AwsCredentialIdentityProvider } from "@aws-sdk/types";
 import { AWSCredentials, MCPConfig } from "../types/index.js";
 import * as fs from "fs";
@@ -21,12 +21,35 @@ export class AWSAuthManager {
 
   /**
    * Build the credential provider and CodeCommit client.
-   * The provider is passed directly to the SDK so token rotation
-   * (Fargate task role, EKS IRSA, EC2 IMDS, SSO) is handled automatically.
+   *
+   * @param ignoreCache When true, the ini-file provider bypasses the AWS SDK's
+   *   module-level shared-config cache and re-reads the credentials file from
+   *   disk. This is REQUIRED for aws_creds_refresh to pick up a rotated profile:
+   *   the SDK caches parsed credentials/config files for the life of the process,
+   *   so simply rebuilding the provider would otherwise resolve the stale parse.
    */
-  private buildClient(): void {
-    if (this.config.awsAccessKeyId && this.config.awsSecretAccessKey) {
-      // Static credentials forced via constructor config — return them as a provider.
+  private buildClient(ignoreCache = false): void {
+    if (this.config.awsProfile) {
+      // An explicit profile wins over ambient env access keys: if AWS_PROFILE is
+      // set, the user means "use this profile". We call fromIni directly rather
+      // than the full chain (whose fromEnv step would let stale env keys shadow
+      // the profile), and pass ignoreCache so a refresh re-reads the rotated file.
+      const init: NonNullable<Parameters<typeof fromIni>[0]> = {
+        profile: this.config.awsProfile,
+        ignoreCache,
+      };
+      const credentialsPath = this.getCredentialsPath();
+      const defaultCredPath = path.join(os.homedir(), ".aws", "credentials");
+      if (credentialsPath && credentialsPath !== defaultCredPath) {
+        init.filepath = credentialsPath;
+        init.configFilepath = path.join(path.dirname(credentialsPath), "config");
+        console.error(`Using credentials from: ${credentialsPath}`);
+      }
+      this.credentialProvider = fromIni(init);
+    } else if (this.config.awsAccessKeyId && this.config.awsSecretAccessKey) {
+      // Static credentials from env / constructor config. NOTE: this is a frozen
+      // snapshot — if these are temporary (STS) credentials they cannot be
+      // refreshed in-process. Use a profile if you need aws_creds_refresh to work.
       const accessKeyId = this.config.awsAccessKeyId;
       const secretAccessKey = this.config.awsSecretAccessKey;
       const sessionToken = this.config.awsSessionToken;
@@ -36,22 +59,9 @@ export class AWSAuthManager {
         sessionToken,
       });
     } else {
-      // Default chain: env → SSO → ini → process → web identity (IRSA) → ECS metadata → EC2 IMDS.
-      // For WSL cross-mount, we pass an explicit ini filepath rather than mutating process.env.
-      const credentialsPath = this.getCredentialsPath();
-      const defaultCredPath = path.join(os.homedir(), ".aws", "credentials");
-
-      const init: Parameters<typeof fromNodeProviderChain>[0] = {};
-      if (this.config.awsProfile) {
-        init.profile = this.config.awsProfile;
-      }
-      if (credentialsPath && credentialsPath !== defaultCredPath) {
-        init.filepath = credentialsPath;
-        init.configFilepath = path.join(path.dirname(credentialsPath), "config");
-        console.error(`Using credentials from: ${credentialsPath}`);
-      }
-
-      this.credentialProvider = fromNodeProviderChain(init);
+      // No profile, no static creds: full chain for Fargate / ECS task roles,
+      // EKS IRSA, EC2 IMDS, and SSO. These rotate automatically via the SDK.
+      this.credentialProvider = fromNodeProviderChain({ ignoreCache });
     }
 
     this.client = new CodeCommitClient({
@@ -62,13 +72,13 @@ export class AWSAuthManager {
     console.error(
       `AWS client initialized${
         this.config.awsProfile ? ` for profile: ${this.config.awsProfile}` : ""
-      }`
+      }${ignoreCache ? " (file cache bypassed)" : ""}`
     );
   }
 
   async refreshCredentials(): Promise<void> {
-    console.error("Rebuilding credential provider and client...");
-    this.buildClient();
+    console.error("Rebuilding credential provider and client (bypassing file cache)...");
+    this.buildClient(true);
   }
 
   async switchProfile(profileName: string): Promise<void> {
@@ -76,7 +86,7 @@ export class AWSAuthManager {
     this.config.awsAccessKeyId = undefined;
     this.config.awsSecretAccessKey = undefined;
     this.config.awsSessionToken = undefined;
-    this.buildClient();
+    this.buildClient(true);
   }
 
   async getClient(): Promise<CodeCommitClient> {
